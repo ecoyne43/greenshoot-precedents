@@ -34,17 +34,17 @@ async function pageData(tab) {
   return { url: tab.url, title: tab.title, site: "", text: "", images: [] };
 }
 
+// Opens the capture window, then hands it the page details (and screenshot) once it has loaded. Nothing goes in
+// the window's address: some posts (Instagram) carry very long image links that break sign-in redirects.
 async function openCapture(data, shot) {
-  const url = `${SITE}/capture.html#${encodeURIComponent(JSON.stringify({ ...data, from: "extension", shot: !!shot }))}`;
-  const win = await chrome.windows.create({ url, type: "popup", width: 600, height: 840 });
-  if (!shot) return win;
+  const win = await chrome.windows.create({ url: `${SITE}/capture.html`, type: "popup", width: 600, height: 840 });
   const tabId = win.tabs[0].id;
-  // Hand the screenshot to the capture window once its page is ready (too big to go in the address).
-  for (let n = 0; n < 40; n++) {
+  const payload = { ...data, from: "extension", shot: !!shot };
+  for (let n = 0; n < 60; n++) {
     await new Promise(r => setTimeout(r, 250));
     try {
-      const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", args: [shot],
-        func: d => { if (!window.gpShot) return false; window.gpShot(d); return true; } });
+      const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", args: [payload, shot || ""],
+        func: (d, s) => { if (!window.gpData) return false; window.gpData(d, s); return true; } });
       if (r?.result) break;
     } catch (e) { /* page still loading */ }
   }

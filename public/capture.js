@@ -3,13 +3,13 @@
 import { esc, api, getAuth, setAuth, shrink, toBase64 } from "./util.js";
 
 const main = document.getElementById("main");
-let data = {};
+// The page details arrive in the address (bookmark button) or from the browser extension just after the window opens.
+let data = {}, shot = "";
+const hadHash = location.hash.length > 1;
 try { data = JSON.parse(decodeURIComponent(location.hash.slice(1)) || "{}"); } catch { data = {}; }
 history.replaceState(null, "", location.pathname);   // keep the captured text out of the address bar and history
-
-// A screenshot (or an image the page holds inline) comes from the browser extension after the window opens.
-let shot = "";
-window.gpShot = d => { shot = d; render(); };
+window.gpData = (d, s) => { data = d || {}; shot = s || ""; start(); };
+window.gpShot = s => { shot = s; render(); };
 
 function render() {
   const { pw, name } = getAuth();
@@ -63,5 +63,10 @@ async function send(e) {
   }
 }
 
-if (!data.url && !data.text && !data.shot) main.innerHTML = `<div class="empty"><h1>Send to Precedents</h1><p>Open this from the bookmark button or the browser extension while on a web page.</p></div>`;
-else render();
+function start() {
+  if (!data.url && !data.text && !data.shot) main.innerHTML = `<div class="empty"><h1>Send to Precedents</h1><p>Open this from the bookmark button or the browser extension while on a web page.</p></div>`;
+  else render();
+}
+if (hadHash) start();
+else main.innerHTML = `<div class="empty"><p class="muted">Getting the page details...</p></div>`;
+setTimeout(() => { if (!data.url && !data.text && !data.shot) start(); }, 6000);

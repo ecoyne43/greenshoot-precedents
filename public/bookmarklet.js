@@ -6,7 +6,7 @@ export function bookmarklet(origin) {
     + `try{if(sel.rangeCount){sel.getRangeAt(0).cloneContents().querySelectorAll('img').forEach(i=>{const s=i.getAttribute('src');if(s)im.push(new URL(s,location.href).href)})}}catch(e){}`
     + `const og=g('og:image');if(og)try{im.push(new URL(og,location.href).href)}catch(e){}`
     + `[...document.images].filter(i=>i.naturalWidth>=400&&i.naturalHeight>=260).sort((a,b)=>b.naturalWidth*b.naturalHeight-a.naturalWidth*a.naturalHeight).slice(0,10).forEach(i=>im.push(i.currentSrc||i.src));`
-    + `im=[...new Set(im)].filter(u=>/^https?:/.test(u)).slice(0,12);`
+    + `im=[...new Set(im)].filter(u=>/^https?:/.test(u)&&u.length<1500).slice(0,8);`
     + `const d={url:location.href,title:document.title,site:g('og:site_name'),author:g('author')||g('article:author'),date:g('article:published_time'),text:t,images:im};`
     + `window.open('${origin}/capture.html#'+encodeURIComponent(JSON.stringify(d)),'precedents','width=560,height=780')})()`;
   return "javascript:" + encodeURIComponent(code);
