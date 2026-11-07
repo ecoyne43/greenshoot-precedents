@@ -118,16 +118,30 @@ with sync_playwright() as p:
     pg.click("#use")
     check(pg.input_value('input[name="name"]') == "Tidewater Weaving Pavilion", "image-only item gets identified")
 
+    # many big photos: must not hit Netlify's 6 MB request limit when approving
+    big = [BASE + f"/fake-site/big{k}.jpg" for k in range(1, 7)]
+    item4 = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "title": "Big photos", "images": big, "from": "extension", "text": "Big photo test"})["item"]
+    pg.goto(BASE + f"/#/inbox/{item4['id']}"); pg.wait_for_selector(".srcstrip:has-text('Big photos') ~ #form-host .rf", timeout=60000)
+    pg.fill('input[name="name"]', "Big Photo Pavilion")
+    n_pics = pg.locator("#form-host .pic input[data-keep]:checked").count()
+    pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=60000)
+    n_saved = pg.locator(".g-thumbs button").count()
+    check(n_saved == n_pics and n_pics >= 6, f"all {n_pics} big photos saved ({n_saved})")
+    data = json.load(open(f"{RUN}/data/precedents.json"))
+    check(sum(len(r["images"]) for r in data["records"] if r["name"] == "Big Photo Pavilion") == n_pics, "big photos on the record")
+
     # add page and site photos
     pg.goto(BASE + "/#/add"); pg.wait_for_selector("#by-photos")
-    pg.set_input_files("#files", [f"{RUN}/fake-site/a.jpg", f"{RUN}/fake-site/c.jpg"])
-    pg.fill('#by-photos input[name="note"]', "Riverside shelter, site visit")
     pg.evaluate("""() => { const dt = new DataTransfer(); dt.setData('text/uri-list', location.origin + '/fake-site/b.jpg');
       document.getElementById('drop').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); }""")
     check(pg.locator("#drop-list img").count() == 1, "image dragged from a web page is picked up")
+    pg.set_input_files("#files", [f"{RUN}/fake-site/a.jpg", f"{RUN}/fake-site/c.jpg"] + [f"{RUN}/fake-site/big{k}.jpg" for k in range(1, 7)])
+    pg.fill('#by-photos input[name="note"]', "Riverside shelter, site visit")
     pg.screenshot(path=f"{OUT}/7_add.png")
     pg.click("#by-photos button.primary"); pg.wait_for_selector("#toast:has-text('Photos sent'), #toast:has-text('send')")
     check("Photos sent" in pg.locator("#toast").inner_text(), "site photos sent: " + pg.locator("#toast").inner_text())
+    newest = json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/inbox", headers={"x-app-password": "test"})))["items"][0]
+    check(len(newest.get("uploads", [])) == 7 and len(newest.get("images", [])) == 1, f"7 photos (in parts) and the dragged web image arrived ({len(newest.get('uploads', []))})")
 
     # capture window from the bookmark button
     cap = b.new_page(viewport={"width": 560, "height": 780}, device_scale_factor=2)

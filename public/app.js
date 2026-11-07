@@ -508,14 +508,16 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     try {
       const kept = pics.filter(p => p.keep);
       r.images = kept.filter(p => p.existing).map(p => ({ ...p }));
-      const newImages = [];
-      for (const p of kept.filter(p => !p.existing)) {
+      const newImages = [], todo = kept.filter(p => !p.existing);
+      for (const [n, p] of todo.entries()) {
+        msg.textContent = `Uploading images (${n + 1} of ${todo.length})...`;
         try {
           const blob = p.key
             ? await (await fetch(`/api/img?k=${encodeURIComponent(p.key)}&t=${c.token}`)).blob()
             : await api(`/api/proxy-image?url=${encodeURIComponent(p.url)}`, { raw: true }).then(x => x.blob());
           const [big, thumb] = await Promise.all([shrink(blob, 1800, 0.82), shrink(blob, 560, 0.78)]);
-          newImages.push({ data: await toBase64(big), thumb: await toBase64(thumb), image_type: p.image_type, caption: p.caption || "", credit: p.credit || "", source_url: p.source_url || "", primary: !!p.primary });
+          const up = await api("/api/upload", { method: "POST", body: { data: await toBase64(big), thumb: await toBase64(thumb) } });
+          newImages.push({ key: up.key, thumb_key: up.thumb_key, image_type: p.image_type, caption: p.caption || "", credit: p.credit || "", source_url: p.source_url || "", primary: !!p.primary });
         } catch (err) { console.warn("image skipped", err); }
       }
       if (newImages.length < kept.filter(p => !p.existing).length) toast("Some images couldn't be downloaded and were left out.");
@@ -605,10 +607,16 @@ function renderAdd() {
     if (!files.length && !webImgs.length) return toast("Add some photos or images first");
     const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Sending...";
     try {
-      const uploads = [];
-      for (const f of files) uploads.push({ data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString() });
+      // Netlify refuses requests over about 6 MB, so photos go up in batches of under 3.5 MB.
+      const batches = [[]]; let size = 0;
+      for (const f of files) {
+        const up = { data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString() };
+        if (size + up.data.length > 3_500_000 && batches.at(-1).length) { batches.push([]); size = 0; }
+        batches.at(-1).push(up); size += up.data.length;
+      }
       const note = new FormData(e.target).get("note") || "";
-      await api("/api/inbox", { method: "POST", body: { note, from: "upload", uploads, images: webImgs, title: note } });
+      const { item } = await api("/api/inbox", { method: "POST", body: { note, from: "upload", uploads: batches[0], images: webImgs, title: note } });
+      for (const b of batches.slice(1)) await api("/api/inbox", { method: "PATCH", body: { id: item.id, uploads: b } });
       await loadInbox(); toast("Photos sent to the inbox"); files = []; webImgs = []; list.innerHTML = ""; e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";

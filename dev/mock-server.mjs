@@ -17,7 +17,7 @@ Object.assign(process.env, {
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", check: "check", img: "img", "proxy-image": "proxy-image" };
+  research: "research", check: "check", upload: "upload", img: "img", "proxy-image": "proxy-image" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -91,6 +91,8 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const chunks = []; for await (const c of req) chunks.push(c);
   const body = Buffer.concat(chunks);
+  // Like Netlify: requests over about 6 MB never reach the function (the browser sees "Failed to fetch").
+  if (url.pathname.startsWith("/api/") && body.length > 6_000_000) return req.socket.destroy();
   try {
     if (url.pathname === "/fake-claude/v1/messages") {
       const b = JSON.parse(body.toString());

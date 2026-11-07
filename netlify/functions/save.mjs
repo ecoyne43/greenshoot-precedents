@@ -1,17 +1,15 @@
 // POST /api/save  Puts a record into the library (one commit to precedents.json in the data repo).
-//   { record, inboxId?, targetId?, newImages: [{ data, thumb, image_type, caption, credit, source_url, primary }] }
+//   { record, inboxId?, targetId?, newImages: [{ key, thumb_key, image_type, caption, credit, source_url, primary }] }
 //   - from the inbox, new precedent:      inboxId, no targetId     -> new id, "Add PR-0012 ..."
 //   - from the inbox, add to an existing: inboxId and targetId     -> "Update PR-0004 ... (from inbox)"
 //   - edit in the library:                targetId, no inboxId     -> "Edit PR-0004 ..."
-// newImages are JPEGs already shrunk by the browser (big and thumbnail), stored in Blobs ("images").
+// newImages were already uploaded one by one with /api/upload (keys "up/img_....jpg" in Blobs "images").
 // Every save records who sent it (added_by) and who approved or edited it (approved_by / edited_by).
-import { randomBytes } from "node:crypto";
 import { requireAuth, json, handle, userName } from "../lib/server.mjs";
 import { store } from "../lib/blobs.mjs";
 import { readLibrary, writeLibrary, cleanRecord, nextId } from "../lib/library.mjs";
 
-const MAX_IMAGE = 3_000_000;
-const ab = b => b.buffer.slice(b.byteOffset, b.byteOffset + b.length);
+const UP = /^up\/img_[a-z0-9]+\.jpg$/;
 
 export default handle(async (req) => {
   const denied = requireAuth(req);
@@ -31,18 +29,10 @@ export default handle(async (req) => {
   if (body.targetId && !old) return json({ error: `${body.targetId} is not in the library` }, 404);
   const id = old ? old.id : nextId(records);
 
-  const files = store("images");
-  const added = [];
-  for (const im of (Array.isArray(body.newImages) ? body.newImages : []).slice(0, 10)) {
-    const big = Buffer.from(String(im.data || ""), "base64"), small = Buffer.from(String(im.thumb || ""), "base64");
-    if (!big.length || !small.length) continue;
-    if (big.length > MAX_IMAGE) return json({ error: "An image is too large after resizing" }, 413);
-    const imgId = "img_" + Date.now().toString(36) + randomBytes(3).toString("hex");
-    const key = `${id}/${imgId}.jpg`, thumb_key = `${id}/${imgId}_t.jpg`;
-    await files.set(key, ab(big));
-    await files.set(thumb_key, ab(small));
-    added.push({ id: imgId, key, thumb_key, image_type: im.image_type, caption: im.caption, credit: im.credit, source_url: im.source_url, primary: !!im.primary });
-  }
+  // New images were uploaded one at a time first (/api/upload); here they are only attached to the record.
+  const added = (Array.isArray(body.newImages) ? body.newImages : []).slice(0, 20)
+    .filter(im => UP.test(im.key || "") && im.thumb_key === String(im.key).replace(/\.jpg$/, "_t.jpg"))
+    .map(im => ({ id: im.key.slice(3, -4), key: im.key, thumb_key: im.thumb_key, image_type: im.image_type, caption: im.caption, credit: im.credit, source_url: im.source_url, primary: !!im.primary }));
 
   const today = new Date().toISOString().slice(0, 10);
   const images = cleanRecord({ name: "x", images: [...rec.images, ...added] }).images;

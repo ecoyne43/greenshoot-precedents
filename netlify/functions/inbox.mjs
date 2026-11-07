@@ -4,6 +4,7 @@
 //   POST  { url, title, site, author, date, text, images, note, from, uploads }   add an item
 //         uploads: [{ data: base64, type: "image/jpeg" | "image/png", name }]  up to 8 (screenshots, site photos)
 //   PATCH { id, status }      status: "new" | "approved" | "discarded"
+//   PATCH { id, uploads }     add more photos to an item (the Add page sends big batches in parts)
 //   DELETE ?id=               remove an item and its uploads
 import { randomBytes } from "node:crypto";
 import { requireAuth, json, handle, userName } from "../lib/server.mjs";
@@ -12,6 +13,24 @@ import { store } from "../lib/blobs.mjs";
 const s = (v, n) => String(v ?? "").slice(0, n);
 const TYPES = { "image/jpeg": "jpg", "image/png": "png" };
 const MAX_TOTAL = 4_800_000;
+
+// Store uploaded images on an item (up to 8 in all). Returns an error response, or null.
+async function addUploads(files, item, ups) {
+  let total = 0;
+  for (const up of ups) {
+    if ((item.uploads || []).length >= 8) break;
+    const ext = TYPES[up?.type];
+    if (!ext) return json({ error: "Only JPEG and PNG images can be sent" }, 415);
+    const buf = Buffer.from(String(up.data || ""), "base64");
+    total += buf.length;
+    if (!buf.length) return json({ error: "An image was empty" }, 400);
+    if (total > MAX_TOTAL) return json({ error: "Too much at once (over 4.8 MB). Send fewer photos." }, 413);
+    const key = `${item.id}_${item.uploads.length}.${ext}`;
+    await files.set(key, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+    item.uploads.push({ key, type: up.type, name: s(up.name, 200), taken: s(up.taken, 40) });
+  }
+  return null;
+}
 
 export default handle(async (req) => {
   const denied = requireAuth(req);
@@ -38,26 +57,23 @@ export default handle(async (req) => {
       images: (Array.isArray(b.images) ? b.images : []).filter(u => /^https?:/.test(u)).slice(0, 10).map(x => s(x, 2000)),
       from: ["extension", "mac", "upload"].includes(b.from) ? b.from : "web", uploads: [],
     };
-    let total = 0;
-    for (const [n, up] of ups.entries()) {
-      const ext = TYPES[up?.type];
-      if (!ext) return json({ error: "Only JPEG and PNG images can be sent" }, 415);
-      const buf = Buffer.from(String(up.data || ""), "base64");
-      total += buf.length;
-      if (!buf.length) return json({ error: "An image was empty" }, 400);
-      if (total > MAX_TOTAL) return json({ error: "Too much at once (over 4.8 MB). Send fewer photos." }, 413);
-      const key = `${id}_${n}.${ext}`;
-      await files.set(key, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
-      item.uploads.push({ key, type: up.type, name: s(up.name, 200), taken: s(up.taken, 40) });
-    }
+    const err = await addUploads(files, item, ups);
+    if (err) return err;
     await box.setJSON(id, item);
     return json({ item });
   }
 
   if (req.method === "PATCH") {
-    const { id, status } = await req.json().catch(() => ({}));
+    const { id, status, uploads } = await req.json().catch(() => ({}));
     const item = await box.get(String(id), { type: "json" });
     if (!item) return json({ error: "Not found" }, 404);
+    if (Array.isArray(uploads)) {   // more photos for an item just sent (large batches go up in parts)
+      item.uploads ||= [];
+      const err = await addUploads(files, item, uploads);
+      if (err) return err;
+      await box.setJSON(item.id, item);
+      return json({ item });
+    }
     item.status = ["new", "approved", "discarded"].includes(status) ? status : "new";
     item.status_by = userName(req);
     await box.setJSON(item.id, item);

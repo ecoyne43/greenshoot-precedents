@@ -3,7 +3,7 @@
 import { store } from "../lib/blobs.mjs";
 import { checkToken } from "../lib/server.mjs";
 
-const LIB = /^PR-\d{4}\/img_[a-z0-9]+(_t)?\.jpg$/, INBOX = /^\d{14}_[a-f0-9]{6}_\d{1,2}\.(jpg|png)$/;
+const LIB = /^(PR-\d{4}|up)\/img_[a-z0-9]+(_t)?\.jpg$/, INBOX = /^\d{14}_[a-f0-9]{6}_\d{1,2}\.(jpg|png)$/;
 
 export default async (req) => {
   const q = new URL(req.url).searchParams;

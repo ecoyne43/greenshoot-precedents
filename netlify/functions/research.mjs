@@ -15,7 +15,7 @@ const OK = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 async function load(im) {
   try {
     if (im.key) {
-      const lib = /^PR-\d{4}\//.test(im.key);
+      const lib = /^(PR-\d{4}|up)\//.test(im.key);
       const buf = await store(lib ? "images" : "inbox-files").get(im.key, { type: "arrayBuffer" });
       return buf ? { buf, type: im.key.endsWith(".png") ? "image/png" : "image/jpeg" } : null;
     }

@@ -92,4 +92,9 @@ json.dump({"records": records}, open(os.path.join(DATA, "precedents.json"), "w")
 for k, (kd, s) in enumerate([("pavilion", 91), ("aerial", 92), ("screen", 93)]):
     picture(s, kd, 1200, 800).save(os.path.join(SITE, "abc"[k] + ".jpg"), "JPEG", quality=80)
 Image.new("RGB", (1200, 800), (250, 250, 250)).save(os.path.join(SITE, "d.jpg"), "JPEG")
+# Big, detailed photos (random noise compresses badly), for testing Netlify's 6 MB request limit.
+import numpy as np
+for k in range(1, 7):
+    arr = np.random.default_rng(k).integers(0, 255, (1500, 2000, 3), dtype=np.uint8)
+    Image.fromarray(arr).save(os.path.join(SITE, f"big{k}.jpg"), "JPEG", quality=80)
 print(f"Seeded {len(records)} sample records in {RUN}")
