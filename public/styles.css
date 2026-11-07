@@ -232,3 +232,12 @@ body.capture { background: var(--paper); }
   .brand-text { display: none; }
   .chip-btn { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+.chg { width: 100%; border-collapse: collapse; font-size: .84rem; background: #fff; border-radius: 6px; overflow: hidden; }
+.chg th { text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); padding: 6px 8px; border-bottom: 1px solid var(--line); background: #faf8f2; }
+.chg td { padding: 7px 8px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+.chg td:first-child { width: 28px; } .chg td:nth-child(2) { width: 140px; } .chg input { width: auto; accent-color: var(--accent); }
+.inl { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; } .inl input { width: auto; accent-color: var(--accent); }
+.drop-list img { height: 54px; border-radius: 4px; }
+@media (max-width: 700px) { .chg thead { display: none; } .chg tr { display: grid; grid-template-columns: 28px 1fr; } .chg td:nth-child(n+3) { grid-column: 2; } }
+.sub-steps { margin: 6px 0 10px; padding-left: 20px; font-size: .92rem; } .sub-steps li { margin-bottom: 3px !important; padding-left: 2px !important; }
+.cap-imgs.one { grid-template-columns: 1fr; } .cap-imgs.one label { aspect-ratio: auto; } .cap-imgs.one img { max-height: 260px; object-fit: contain; background: #fff; }

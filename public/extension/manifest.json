@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Send to Precedents",
+  "version": "1.0.0",
+  "description": "Send web pages, images and screenshots to Greenshoot's Precedents library inbox.",
+  "action": { "default_title": "Send this page to Precedents", "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" } },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["contextMenus", "activeTab", "scripting"],
+  "host_permissions": ["__SITE__/*"]
+}

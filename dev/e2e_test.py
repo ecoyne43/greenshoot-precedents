@@ -52,7 +52,7 @@ with sync_playwright() as p:
 
     # something sent from the bookmark button / extension
     item = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "title": "Tidewater Weaving Pavilion / Example Studio",
-                "site": "Sample Architecture News", "text": "Example Studio has completed a timber pavilion...", "note": "Great woven roof screen",
+                "site": "Sample Architecture News", "text": "Example Studio has completed a timber pavilion...", "note": "Great woven roof screen (co-design test)",
                 "images": [BASE + "/fake-site/a.jpg", BASE + "/fake-site/b.jpg"], "from": "extension"})["item"]
     check(item["by"] == "Jez", "inbox item credited to the sender")
     pg.goto(BASE + "/#/inbox"); pg.wait_for_selector(".ib")
@@ -64,11 +64,16 @@ with sync_playwright() as p:
     check(pg.locator('input[name="f:materials"][value="Timber"]').is_checked(), "draft ticks Timber")
     pg.screenshot(path=f"{OUT}/5_review.png", full_page=True)
 
-    # fill gaps online
+    # check and fill online: every field, from the web notes and the record's own text
     pg.click("#fill"); pg.wait_for_selector("#use")
+    check(pg.locator("[data-chg]").count() == 3, f"3 field changes proposed (got {pg.locator('[data-chg]').count()})")
+    check(pg.locator("[data-chg]:checked").count() == 2, "new info ticked, change to a filled field unticked")
+    pg.screenshot(path=f"{OUT}/11_check.png", full_page=True)
     pg.click("#use")
-    check("Sample Architecture Award" in pg.input_value('input[name="awards"]'), "Fill gaps adds the award")
-    check(pg.locator('input[name="f:environment"][value="Climate + Resilience"]').is_checked(), "Fill gaps adds a category")
+    check("Sample Architecture Award" in pg.input_value('input[name="awards"]'), "check adds the award from the web")
+    check("Greenshoot" in pg.input_value('input[name="first_peoples_collaborators"]'), "check fills a field from the record's own text")
+    check(pg.input_value('input[name="architect"]') == "Example Studio", "unticked change to the architect not applied")
+    check(pg.locator('input[name="f:environment"][value="Climate + Resilience"]').is_checked(), "check adds a category")
 
     # approve
     pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=20000)
@@ -104,10 +109,22 @@ with sync_playwright() as p:
     check("2025" in pg.locator(".sub").inner_text(), "edit saves")
     check("Edit PR-0010" in open(f"{RUN}/data/_commits.log").read(), "edit commit message")
 
+    # sent as just an image: Groundwork identifies it online straight away
+    item3 = post("/api/inbox", {"images": [BASE + "/fake-site/c.jpg"], "from": "upload"})["item"]
+    pg.goto(BASE + f"/#/inbox/{item3['id']}"); pg.wait_for_selector("#use", timeout=30000)
+    log = json.load(urllib.request.urlopen(BASE + "/__claude"))
+    check(any(x["kind"] == "research" and x["nImages"] == 1 for x in log), "image sent to the web research step")
+    check(any(x["kind"] == "research" and "REVERSE IMAGE SEARCH" in x["text"] for x in log), "reverse image search leads passed on")
+    pg.click("#use")
+    check(pg.input_value('input[name="name"]') == "Tidewater Weaving Pavilion", "image-only item gets identified")
+
     # add page and site photos
     pg.goto(BASE + "/#/add"); pg.wait_for_selector("#by-photos")
     pg.set_input_files("#files", [f"{RUN}/fake-site/a.jpg", f"{RUN}/fake-site/c.jpg"])
     pg.fill('#by-photos input[name="note"]', "Riverside shelter, site visit")
+    pg.evaluate("""() => { const dt = new DataTransfer(); dt.setData('text/uri-list', location.origin + '/fake-site/b.jpg');
+      document.getElementById('drop').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); }""")
+    check(pg.locator("#drop-list img").count() == 1, "image dragged from a web page is picked up")
     pg.screenshot(path=f"{OUT}/7_add.png")
     pg.click("#by-photos button.primary"); pg.wait_for_selector("#toast:has-text('Photos sent'), #toast:has-text('send')")
     check("Photos sent" in pg.locator("#toast").inner_text(), "site photos sent: " + pg.locator("#toast").inner_text())

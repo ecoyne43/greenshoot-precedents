@@ -49,8 +49,8 @@ export const toBase64 = blob => new Promise((ok, bad) => {
   r.readAsDataURL(blob);
 });
 
-// Read a streamed Claude answer (server-sent events) and return the JSON object it ends with.
-export async function readWebAnswer(res, onSearch = () => {}) {
+// Read a streamed Claude answer (server-sent events): returns its text. onSearch(n) is called as searches run.
+export async function readWebText(res, onSearch = () => {}) {
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = "", text = "", searches = 0;
   for (;;) {
@@ -68,9 +68,5 @@ export async function readWebAnswer(res, onSearch = () => {}) {
       if (ev.type === "error") throw new Error(ev.error?.message || "Search failed");
     }
   }
-  const end = text.lastIndexOf("}");
-  for (let s = text.lastIndexOf("{", end); s >= 0; s = text.lastIndexOf("{", s - 1)) {
-    try { return JSON.parse(text.slice(s, end + 1)); } catch { /* keep looking further back */ }
-  }
-  throw new Error("Groundwork's answer could not be read");
+  return text.trim();
 }

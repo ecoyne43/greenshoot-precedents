@@ -91,3 +91,14 @@ export const attribution = (r, by, approver) => {
   const now = new Date().toISOString().slice(0, 10);
   return { ...r, added_by: r.added_by || by, approved_by: approver, added: r.added || now, updated: now };
 };
+
+// The whole record as text, for Claude to check (Check and fill online).
+export function recordText(r = {}) {
+  const lines = TEXT_FIELDS.map(f => `${f.key} (${f.label}): ${r[f.key] || "(empty)"}`);
+  lines.push(`status: ${r.status || "(empty)"}`, `scale: ${r.scale || "(empty)"}`);
+  for (const f of FACETS) lines.push(`categories, ${f.label}: ${(r.facets?.[f.key] || []).join("; ") || "(none)"}`);
+  lines.push(`tags: ${(r.tags || []).join(", ") || "(none)"}`, `sources: ${(r.sources || []).join(" | ") || "(none)"}`);
+  const caps = (r.images || []).map(i => i.caption).filter(Boolean);
+  if (caps.length) lines.push(`image captions: ${caps.join(" | ")}`);
+  return lines.join("\n");
+}

@@ -20,6 +20,10 @@ Rules:
 - name: the project's usual name. location_text: as specific as the material allows (e.g. "Birrarung Marr,
   Melbourne VIC"). country is the nation (e.g. Australia).
 - country_to: the Traditional Owner group(s) or Country, only if the material states it.
+- People fields by role: architect (lead architect or design practice), landscape_architect, artists,
+  first_peoples_collaborators (Traditional Owner groups, Elders, First Peoples artists, consultancies and advisers),
+  client, other_team (everyone else, with their role in brackets). A First Peoples design consultancy that led or
+  co-designed the cultural design (for example Greenshoot Consulting) goes in first_peoples_collaborators.
 - summary: 60 to 90 words. What the project is, where, who designed it, and its key design moves. Factual.
 - why_it_matters: 1 to 3 sentences on what Greenshoot could learn from it for Designing with Country work. Ground it
   in what the material shows; do not overstate.
@@ -67,15 +71,43 @@ export const SIMILAR_RULES = `${ASK_RULES}
 This time the request is a precedent (or a project brief). Find the precedents most like it in useful ways for design
 work: shared design moves, themes, typology, landscape or materials. Do not return the precedent itself.`;
 
-export const FILL_RULES = `${HOUSE}
+// Check and fill, step 1: search the web and write notes (streamed, so long searches don't time out).
+export const RESEARCH_RULES = `${HOUSE}
 
-Fill gaps in a precedent record by searching the web. Look for the designers, year completed, location, Traditional
-Owner involvement, awards and a better description from reliable sources (practice websites, ArchDaily, Landezine,
-award listings, council and news pages). Routine facts need no citation; anything significant or new must come from
-a source you list. Do not guess. Use only the lists given for facet values.
-End your answer with ONE JSON object (no code fence) with these keys:
-{"researched": true, "summary": "one sentence on what you found", "fields": {<only the text fields you can fill or
-improve, by key>}, "add_facets": {<facet key>: [values]}, "sources": ["Title, url"], "caveats": "anything uncertain"}
-Text field keys: ${TEXT_FIELDS.map(f => f.key).join(", ")}.
-Facet lists:
+Research a precedent for the library. Search the web for the project (practice websites, ArchDaily, Landezine,
+award listings, council, government and news pages). Write short factual notes, one fact per line, each followed by
+its source as (Title, url). Cover: the full design team and their roles (architect, landscape architect, artists,
+First Peoples collaborators and consultants, engineers, client, builder), year completed, exact location,
+Traditional Owner groups and how they were involved, awards, materials and the key design moves. Also note anything
+in the record that the sources contradict. If the record names no clear project, first work out which project it is
+from the name, location, image captions and sources. Do not guess; leave out anything you cannot find.`;
+
+// Check and fill, step 2: compare the whole record with the notes and with its own text, field by field.
+export const CHECK_RULES = `${HOUSE}
+
+Check a precedent record field by field and propose changes. You get the record (every field, its categories and
+sources) and research notes from a web search (possibly empty).
+- Fill every empty field you can, from the notes OR from the record's own summary and description (for example a
+  designer named only in the description belongs in the right people field).
+- People fields by role: architect (lead architect or design practice), landscape_architect, artists,
+  first_peoples_collaborators (Traditional Owner groups, Elders, First Peoples artists, consultancies and advisers),
+  client, other_team (everyone else, with their role in brackets). A First Peoples design consultancy that led or
+  co-designed the cultural design (for example Greenshoot Consulting) goes in first_peoples_collaborators, not
+  other_team.
+- Change a field that already has a value only when the notes clearly show it is wrong or incomplete, and say why.
+- Never invent. Every change needs a reason and a source: a url from the notes, or "record text".
+- Summary stays 60 to 90 words. Do not rewrite text fields just for style.
+- add_facets: only category values from the lists that the material clearly supports and the record lacks.
+- add_sources: notes sources you relied on, as "Title, url".
+- summary: one sentence on what you checked and found. caveats: anything uncertain, or "".
+Category lists:
 ${facetText}`;
+
+export const CHECK_SCHEMA = obj({
+  summary: str,
+  changes: arr(obj({ field: { type: "string", enum: [...TEXT_FIELDS.map(f => f.key), "status", "scale"] }, value: str, reason: str, source: str })),
+  add_facets: obj(Object.fromEntries(FACETS.map(f => [f.key, arr({ type: "string", enum: f.values })]))),
+  add_tags: arr(str),
+  add_sources: arr(str),
+  caveats: str,
+});

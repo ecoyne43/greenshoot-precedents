@@ -16,7 +16,7 @@ changes here can never break the live map tool.
 - **Inbox**: Netlify Blobs, stores `inbox` (items) and `inbox-files` (uploaded site photos and screenshots).
 - **Categories**: `netlify/lib/vocab.mjs`. The eight facets, status, scale and image types. The form, the filters
   and Groundwork's drafting all read from this file.
-- **House rules for Groundwork**: `netlify/lib/prompts.mjs` (drafting, Ask, Find similar, Fill gaps online).
+- **House rules for Groundwork**: `netlify/lib/prompts.mjs` (drafting, Ask, Find similar, Check and fill online).
 
 | Function | What it does |
 |---|---|
@@ -26,8 +26,13 @@ changes here can never break the live map tool.
 | `/api/draft` | Groundwork drafts a record from an inbox item (reads the page and images, checks for duplicates) |
 | `/api/save` | approve an inbox item (new record or added to an existing one) or save an edit: one commit |
 | `/api/ask` | Ask Groundwork, Find similar, find precedents for a brief |
-| `/api/research` | Fill gaps online (Claude with web search, streamed) |
+| `/api/research` | Check and fill online, step 1: web search for the precedent (can look at its images), streamed notes |
+| `/api/check` | Check and fill online, step 2: compares every field with the notes and the record's own text, proposes changes with reasons and sources |
 | `/api/img`, `/api/proxy-image` | serve stored images; fetch web images for the browser to shrink |
+
+Browser extension: `public/extension/` (Chrome and Edge, Manifest V3). The Get started page zips it with the
+site's address written in (`zip.js`); the team unzips it and uses Load unpacked. Toolbar button sends the page;
+right-click sends an image, the page or a screenshot. All open `capture.html`. Test: `dev/extension_test.py`.
 
 Pages: `index.html` + `app.js` (library, record, inbox review, add), `capture.html` (the bookmark button's window),
 `start.html` (Get started page to send the team).
@@ -40,6 +45,8 @@ Pages: `index.html` + `app.js` (library, record, inbox review, add), `capture.ht
    - `APP_PASSWORD` the team password
    - `ANTHROPIC_API_KEY` (web search must be allowed for the key, for Fill gaps online)
    - `GITHUB_TOKEN`, `GITHUB_REPO=ecoyne43/greenshoot-precedents-data`
+   - optional `GOOGLE_VISION_KEY`: Google Cloud Vision API key, for reverse image search when a precedent arrives
+     as just an image (first 1,000 a month free, then US$3.50 per 1,000, Nov 2026)
    - optional `CLAUDE_MODEL` (default `claude-sonnet-5-5`), `DATA_PATH` (default `precedents.json`), `GITHUB_BRANCH`
 4. Send the team the site's `/start.html` link and the password.
 
@@ -49,6 +56,7 @@ npm install
 python3 dev/seed.py                 # made-up SAMPLE records and placeholder images in dev/run
 node dev/mock-server.mjs 8899       # password: test; fakes GitHub, Blobs and Claude
 python3 dev/e2e_test.py http://localhost:8899 <screenshot folder> dev/run
+python3 dev/extension_test.py http://localhost:8899 <screenshot folder>
 ```
 Re-seed before each test run (the test adds PR-0010).
 

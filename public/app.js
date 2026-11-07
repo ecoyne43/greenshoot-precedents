@@ -1,7 +1,7 @@
 // Groundworked Precedents: the library, the inbox review and the Add page. One page, views chosen by the address
 // (#/library, #/p/PR-0001, #/inbox, #/inbox/<id>, #/add). Records come from /api/library; nothing is saved until
 // someone approves (inbox) or saves an edit, which commits to the data repo.
-import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebAnswer } from "./util.js";
+import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText } from "./util.js";
 import { bookmarklet } from "./bookmarklet.js";
 
 const st = {
@@ -339,6 +339,8 @@ async function openReview(item) {
     <div id="form-host"></div>`;
   const form = editorForm({ record: d.record, draftImages: d.images, item });
   document.getElementById("form-host").append(form.el);
+  // Sent as just an image (no page, no text): Groundwork tries to identify the project online straight away.
+  if (!item.url && !item.text && !item.checked) { item.checked = true; form.fill(); }
   box.querySelectorAll("[data-merge]").forEach(b => b.onclick = () => {
     const target = byId(b.dataset.merge);
     const merged = mergeInto(structuredClone(target), form.read());
@@ -401,7 +403,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
         <label class="fl"><span>Scale</span><select name="scale"><option value=""></option>${c.scale.map(s => `<option ${s === rec.scale ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       </div>
       ${c.fields.filter(x => x.long).map(field).join("")}
-      <div class="fillrow"><button type="button" class="btn" id="fill">✦ Fill gaps online</button><span class="muted small" id="fill-msg">Groundwork searches the web for missing details. Nothing changes until you choose Use this.</span></div>
+      <div class="fillrow"><button type="button" class="btn" id="fill">✦ Check and fill online</button><span class="muted small" id="fill-msg">Groundwork searches the web, then checks every field against what it finds and the record's own text. You choose which changes to keep.</span></div>
       <div id="fill-out"></div>
     </div>
     <div class="rf-sec"><h3>Categories <span class="muted small">Pick all that apply. These drive the library's filters.</span></h3>
@@ -453,28 +455,47 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
 
   async function fillGaps() {
     const btn = el.querySelector("#fill"), msg = el.querySelector("#fill-msg"), out = el.querySelector("#fill-out");
-    btn.disabled = true; msg.textContent = "Searching the web...";
+    btn.disabled = true; out.innerHTML = ""; msg.textContent = "Searching the web...";
+    const record = read();
+    const images = pics.filter(p => p.keep).slice(0, 3).map(p => (p.existing ? { key: p.key } : p.key ? { key: p.key } : { url: p.url }));
+    let notes = "", searchNote = "";
     try {
-      const res = await api("/api/research", { method: "POST", body: { record: read() }, raw: true });
-      const ans = await readWebAnswer(res, n => { msg.textContent = `Searching the web (${n} search${n === 1 ? "" : "es"})...`; });
-      const fields = Object.entries(ans.fields || {}).filter(([k, v]) => v && c.fields.some(f => f.key === k));
-      const addF = Object.entries(ans.add_facets || {}).map(([k, vs]) => [k, (vs || []).filter(v => c.facets.find(f => f.key === k)?.values.includes(v))]).filter(([, vs]) => vs.length);
-      msg.textContent = ans.summary || "Done.";
-      out.innerHTML = fields.length || addF.length || (ans.sources || []).length ? `<div class="fill-box">
-        ${fields.map(([k, v]) => `<div><b>${esc(c.fields.find(f => f.key === k).label)}:</b> ${esc(v)}</div>`).join("")}
-        ${addF.map(([k, vs]) => `<div><b>Add to ${esc(c.facets.find(f => f.key === k).label)}:</b> ${vs.map(esc).join(", ")}</div>`).join("")}
-        ${(ans.sources || []).length ? `<div><b>Sources:</b> ${ans.sources.map(esc).join("; ")}</div>` : ""}
+      const res = await api("/api/research", { method: "POST", body: { record, images }, raw: true });
+      notes = await readWebText(res, n => { msg.textContent = `Searching the web (${n} search${n === 1 ? "" : "es"})...`; });
+    } catch (e) { searchNote = `The web search didn't work (${e.message}), so this check uses the record's own text only. `; }
+    msg.textContent = "Checking every field...";
+    try {
+      const ans = await api("/api/check", { method: "POST", body: { record, notes } });
+      const label = k => c.fields.find(f => f.key === k)?.label || (k === "status" ? "Status" : k === "scale" ? "Scale" : k);
+      const facetLabel = k => c.facets.find(f => f.key === k)?.label || k;
+      const addF = Object.entries(ans.add_facets || {});
+      const srcLink = s => /^https?:\/\//.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">source</a>` : esc(s);
+      const urlIn = s => (String(s).match(/https?:\/\/\S+/) || [])[0];
+      msg.textContent = searchNote + (ans.summary || "Checked.");
+      const any = ans.changes.length || addF.length || ans.add_tags.length || ans.add_sources.length;
+      out.innerHTML = any ? `<div class="fill-box">
+        ${ans.changes.length ? `<table class="chg"><thead><tr><th></th><th>Field</th><th>Now</th><th>Suggested</th><th>Why</th></tr></thead><tbody>
+          ${ans.changes.map((ch, n) => `<tr><td><input type="checkbox" data-chg="${n}" ${ch.current ? "" : "checked"}></td><td><b>${esc(label(ch.field))}</b></td>
+            <td class="${ch.current ? "" : "muted"}">${esc((ch.current || "empty").slice(0, 160))}</td><td>${esc(ch.value.slice(0, 400))}</td>
+            <td class="small">${esc(ch.reason)} ${urlIn(ch.source) ? srcLink(urlIn(ch.source)) : `<span class="muted">(${esc(ch.source)})</span>`}</td></tr>`).join("")}
+        </tbody></table>` : ""}
+        ${addF.map(([k, vs]) => `<div><b>Add to ${esc(facetLabel(k))}:</b> ${vs.map(v => `<label class="inl"><input type="checkbox" data-fac="${esc(k)}" value="${esc(v)}" checked> ${esc(v)}</label>`).join(" ")}</div>`).join("")}
+        ${ans.add_tags.length ? `<div><b>Add tags:</b> ${ans.add_tags.map(t => `<label class="inl"><input type="checkbox" data-tag value="${esc(t)}" checked> ${esc(t)}</label>`).join(" ")}</div>` : ""}
+        ${ans.add_sources.length ? `<div><b>Add sources:</b> ${ans.add_sources.map(s => `<label class="inl"><input type="checkbox" data-src value="${esc(s)}" checked> ${esc(s)}</label>`).join(" ")}</div>` : ""}
         ${ans.caveats ? `<div class="muted">${esc(ans.caveats)}</div>` : ""}
-        <p><button type="button" class="btn primary" id="use">Use this</button> <button type="button" class="btn" id="nouse">Leave it</button></p></div>` : `<p class="muted small">Nothing new found.</p>`;
+        <p class="small muted">Ticked: new information for empty fields. Unticked: changes to things already filled in. Tick what you want to keep.</p>
+        <p><button type="button" class="btn primary" id="use">Use selected</button> <button type="button" class="btn" id="nouse">Leave it</button></p></div>`
+        : `<p class="muted small">Everything checks out: nothing to add or change.</p>`;
       el.querySelector("#use")?.addEventListener("click", () => {
         const cur = read();
-        for (const [k, v] of fields) cur[k] = v;
-        for (const [k, vs] of addF) cur.facets[k] = [...new Set([...(cur.facets[k] || []), ...vs])];
-        cur.sources = [...new Set([...cur.sources, ...(ans.sources || [])])];
-        rec = { ...rec, ...cur }; keepScroll(draw); toast("Added. Check it over before saving.");
+        out.querySelectorAll("[data-chg]:checked").forEach(x => { const ch = ans.changes[+x.dataset.chg]; cur[ch.field] = ch.value; });
+        out.querySelectorAll("[data-fac]:checked").forEach(x => { cur.facets[x.dataset.fac] = [...new Set([...(cur.facets[x.dataset.fac] || []), x.value])]; });
+        out.querySelectorAll("[data-tag]:checked").forEach(x => { if (!cur.tags.includes(x.value)) cur.tags.push(x.value); });
+        out.querySelectorAll("[data-src]:checked").forEach(x => { if (!cur.sources.includes(x.value)) cur.sources.push(x.value); });
+        rec = { ...rec, ...cur }; keepScroll(draw); toast("Changes added. Check them over before saving.");
       });
       el.querySelector("#nouse")?.addEventListener("click", () => { out.innerHTML = ""; });
-    } catch (e) { msg.textContent = `Couldn't search: ${e.message}`; }
+    } catch (e) { msg.textContent = `Couldn't check: ${e.message}`; }
     btn.disabled = false;
   }
 
@@ -511,7 +532,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   };
 
   draw();
-  return { el, read, reset(newRec, newTarget) { rec = newRec; target = newTarget; setPics(); draw(); } };
+  return { el, read, fill: fillGaps, reset(newRec, newTarget) { rec = newRec; target = newTarget; setPics(); draw(); } };
 }
 
 function openEditor({ record, targetId }) {
@@ -539,10 +560,10 @@ function renderAdd() {
         <p class="muted small">Quicker: use the browser extension or the bookmark button on the page itself. See <a href="start.html" target="_blank">Get started</a>.</p>
       </form>
       <form class="panel" id="by-photos">
-        <h2>Your own site photos</h2>
-        <label class="drop" id="drop"><input type="file" accept="image/*" multiple hidden id="files"><span><b>Drop photos here</b> or click to choose<br><em>Up to 8 at a time. Works from a phone too.</em></span></label>
+        <h2>Photos and images</h2>
+        <label class="drop" id="drop"><input type="file" accept="image/*" multiple hidden id="files"><span><b>Drop photos or images here</b>, paste a screenshot (Cmd/Ctrl+V), or click to choose<br><em>Drag images straight from another web page too. Up to 8 at a time. Works from a phone.</em></span></label>
         <div class="drop-list" id="drop-list"></div>
-        <label class="fl long"><span>Which project is this? <em>name, place, anything you know</em></span><input name="note" required placeholder="e.g. Bunjil Place forecourt, Narre Warren. Site visit Nov 2026"></label>
+        <label class="fl long"><span>Which project is this? <em>optional: if you leave it blank, Groundwork tries to identify it online</em></span><input name="note" placeholder="e.g. Bunjil Place forecourt, Narre Warren. Site visit Nov 2026"></label>
         <button class="btn primary">Send to the inbox</button>
       </form>
     </div>
@@ -560,22 +581,35 @@ function renderAdd() {
       await loadInbox(); toast("Sent to the inbox"); e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
   };
-  let files = [];
+  let files = [], webImgs = [];
   const list = document.getElementById("drop-list"), input = document.getElementById("files"), drop = document.getElementById("drop");
-  const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 8); list.innerHTML = files.map(f => `<span>${esc(f.name)}</span>`).join(""); };
+  const show = () => { list.innerHTML = files.map(f => `<span>${esc(f.name || "pasted image")}</span>`).join("") + webImgs.map(u => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join(""); };
+  const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 8 - webImgs.length); show(); };
   input.onchange = () => add(input.files);
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); add(e.dataTransfer.files); };
+  drop.ondrop = e => {
+    e.preventDefault(); drop.classList.remove("over");
+    const dt = e.dataTransfer;
+    if ([...dt.files].some(f => f.type.startsWith("image/"))) return add(dt.files);
+    // An image dragged from another web page arrives as its address.
+    const html = dt.getData("text/html"), m = html && html.match(/<img[^>]+src=["']([^"']+)/i);
+    const u = (m && m[1]) || dt.getData("text/uri-list").split("\n").find(l => /^https?:/.test(l.trim())) || "";
+    if (/^https?:/.test(u.trim())) { webImgs = [...new Set([...webImgs, u.trim()])].slice(0, 8 - files.length); show(); }
+    else toast("That didn't come through as an image. Try saving it and dropping the file.");
+  };
+  const onPaste = e => { if (!document.getElementById("by-photos")) return document.removeEventListener("paste", onPaste); const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); add(f); } };
+  document.addEventListener("paste", onPaste);
   document.getElementById("by-photos").onsubmit = async e => {
     e.preventDefault();
-    if (!files.length) return toast("Choose some photos first");
+    if (!files.length && !webImgs.length) return toast("Add some photos or images first");
     const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Sending...";
     try {
       const uploads = [];
       for (const f of files) uploads.push({ data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString() });
-      await api("/api/inbox", { method: "POST", body: { note: new FormData(e.target).get("note"), from: "upload", uploads, title: new FormData(e.target).get("note") } });
-      await loadInbox(); toast("Photos sent to the inbox"); files = []; list.innerHTML = ""; e.target.reset();
+      const note = new FormData(e.target).get("note") || "";
+      await api("/api/inbox", { method: "POST", body: { note, from: "upload", uploads, images: webImgs, title: note } });
+      await loadInbox(); toast("Photos sent to the inbox"); files = []; webImgs = []; list.innerHTML = ""; e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";
   };

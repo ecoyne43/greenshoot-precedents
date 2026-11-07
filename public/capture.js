@@ -1,11 +1,15 @@
 // The small window opened by the "Send to Precedents" bookmark button (and the browser extension). Shows what was
 // collected from the page, lets the sender pick images and add a note, and sends it all to the inbox.
-import { esc, api, getAuth, setAuth } from "./util.js";
+import { esc, api, getAuth, setAuth, shrink, toBase64 } from "./util.js";
 
 const main = document.getElementById("main");
 let data = {};
 try { data = JSON.parse(decodeURIComponent(location.hash.slice(1)) || "{}"); } catch { data = {}; }
 history.replaceState(null, "", location.pathname);   // keep the captured text out of the address bar and history
+
+// A screenshot (or an image the page holds inline) comes from the browser extension after the window opens.
+let shot = "";
+window.gpShot = d => { shot = d; render(); };
 
 function render() {
   const { pw, name } = getAuth();
@@ -15,6 +19,7 @@ function render() {
     <div class="cap-h"><span class="mark">G</span><div><h1>Send to Precedents</h1><p class="muted small">${esc(data.site || "")}${data.site ? " · " : ""}${esc(data.url || "")}</p></div></div>
     <form id="f">
       <label class="fl long"><span>Page</span><input id="title" value="${esc(data.title || "")}"></label>
+      ${data.shot ? `<div class="fl long"><span>Screenshot</span>${shot ? `<div class="cap-imgs one"><label><input type="checkbox" id="use-shot" checked><img src="${shot}" alt=""></label></div>` : `<p class="muted small">Waiting for the screenshot...</p>`}</div>` : ""}
       ${imgs.length ? `<div class="fl long"><span>Images <em>tick the ones worth keeping</em></span><div class="cap-imgs">
         ${imgs.map((u, n) => `<label><input type="checkbox" name="img" value="${esc(u)}" ${pre.has(u) ? "checked" : ""}><img src="${esc(u)}" alt="" referrerpolicy="no-referrer"></label>`).join("")}
       </div></div>` : ""}
@@ -43,6 +48,10 @@ async function send(e) {
   };
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Sending...";
   try {
+    if (shot && document.getElementById("use-shot")?.checked) {
+      const blob = await (await fetch(shot)).blob();
+      body.uploads = [{ data: await toBase64(await shrink(blob, 2200, 0.85)), type: "image/jpeg", name: "screenshot.jpg" }];
+    }
     await api("/api/inbox", { method: "POST", body });
     main.innerHTML = `<div class="empty"><h1>Sent</h1><p>It's in the Precedents inbox. Groundwork will draft the record for whoever reviews it.</p></div>`;
     setTimeout(() => window.close(), 1800);
@@ -54,5 +63,5 @@ async function send(e) {
   }
 }
 
-if (!data.url && !data.text) main.innerHTML = `<div class="empty"><h1>Send to Precedents</h1><p>Open this from the bookmark button or the browser extension while on a web page.</p></div>`;
+if (!data.url && !data.text && !data.shot) main.innerHTML = `<div class="empty"><h1>Send to Precedents</h1><p>Open this from the bookmark button or the browser extension while on a web page.</p></div>`;
 else render();

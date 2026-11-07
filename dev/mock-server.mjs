@@ -13,10 +13,11 @@ mkdirSync(RUN, { recursive: true });
 Object.assign(process.env, {
   APP_PASSWORD: "test", LOCAL_DATA_DIR: join(RUN, "data"), BLOBS_DIR: join(RUN, "blobs"), ALLOW_LOCAL_FETCH: "1",
   ANTHROPIC_API_KEY: "fake", ANTHROPIC_BASE_URL: `http://localhost:${PORT}/fake-claude`,
+  GOOGLE_VISION_KEY: "fake", GOOGLE_VISION_URL: `http://localhost:${PORT}/fake-vision`,
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", img: "img", "proxy-image": "proxy-image" };
+  research: "research", check: "check", img: "img", "proxy-image": "proxy-image" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -26,15 +27,15 @@ function fakeClaude(body) {
   const userText = (body.messages?.[0]?.content || []);
   const text = typeof userText === "string" ? userText : userText.filter(c => c.type === "text").map(c => c.text).join("\n");
   const nImages = typeof userText === "string" ? 0 : userText.filter(c => c.type === "image").length;
-  claudeLog.push({ kind: sys.includes("Draft ONE") ? "draft" : sys.includes("Fill gaps") ? "fill" : "ask", nImages, text: text.slice(0, 400) });
+  claudeLog.push({ kind: sys.includes("Draft ONE") ? "draft" : sys.includes("Research a precedent") ? "research" : sys.includes("Check a precedent") ? "check" : "ask", nImages, text: text.slice(0, 8000) });
   if (body.stream) return null;
   let out;
   if (sys.includes("Draft ONE")) {
     out = {
-      name: "Tidewater Weaving Pavilion", also_known_as: "", location_text: "Foreshore Reserve, Port Sample VIC", city: "Port Sample",
+      name: text.includes("PAGE:") || text.includes("HIGHLIGHTED") ? "Tidewater Weaving Pavilion" : "", also_known_as: "", location_text: "Foreshore Reserve, Port Sample VIC", city: "Port Sample",
       state: "VIC", country: "Australia", country_to: "", year_completed: "2024", architect: "Example Studio",
       landscape_architect: "", artists: "", first_peoples_collaborators: "", client: "Sample Shire Council", other_team: "", awards: "",
-      summary: "A timber pavilion on a coastal foreshore whose roof screens draw on woven fish-trap forms. It gives shade and a gathering place beside a restored saltmarsh, with seating set around a central fire pit for community events and ceremony.",
+      summary: (text.includes("co-design test") ? "Co-designed by Greenshoot Consulting with Elders. " : "") + "A timber pavilion on a coastal foreshore whose roof screens draw on woven fish-trap forms. It gives shade and a gathering place beside a restored saltmarsh, with seating set around a central fire pit for community events and ceremony.",
       why_it_matters: "Shows how a woven pattern can become structure rather than surface decoration, and how a small shelter can hold both everyday use and ceremony.",
       description: "Completed in 2024 for the Sample Shire Council, the pavilion sits at the edge of a restored saltmarsh.",
       status: "Built", scale: "Building",
@@ -45,6 +46,16 @@ function fakeClaude(body) {
       images: Array.from({ length: nImages }, (_, n) => ({ image_type: n === 1 ? "Aerial" : n === 2 ? "Detail" : "Photo", caption: `View ${n + 1} of the pavilion`, keep: n !== 3, credit: "Example Studio" })),
       confidence: "medium", notes: "The page does not say who the Traditional Owners are or how they were involved.",
     };
+  } else if (sys.includes("Check a precedent")) {
+    const notes = text.split("RESEARCH NOTES")[1] || "";
+    const empty = k => new RegExp(`^${k} \\([^)]*\\): \\(empty\\)`, "m").test(text);
+    out = { summary: "Checked every field against two sources and the record's own text.", changes: [], add_facets: {}, add_tags: [], add_sources: [], caveats: "" };
+    if (notes.includes("Sample Architecture Award") && empty("awards")) out.changes.push({ field: "awards", value: "Sample Architecture Award, Small Project, 2025", reason: "Listed on the awards page.", source: "https://example.org/awards" });
+    if (/co-designed by Greenshoot/i.test(text) && empty("first_peoples_collaborators")) out.changes.push({ field: "first_peoples_collaborators", value: "Greenshoot Consulting (co-design)", reason: "The description says Greenshoot co-designed it.", source: "record text" });
+    out.changes.push({ field: "architect", value: "Example Studio with Tidal Landscape", reason: "The practice page credits both.", source: "https://example.org/tidewater" });
+    if (/^name \([^)]*\): \(empty\)/m.test(text)) out.changes.push({ field: "name", value: "Tidewater Weaving Pavilion", reason: "Identified from the image and a matching project page.", source: "https://example.org/tidewater" });
+    out.add_facets = { environment: ["Climate + Resilience"] };
+    out.add_sources = ["Example Studio project page, https://example.org/tidewater"];
   } else {
     const lines = text.split("LIBRARY INDEX:")[1]?.trim().split("\n") || [];
     const ask = (text.split("LIBRARY INDEX:")[0] || "").toLowerCase();
@@ -60,10 +71,8 @@ function fakeFillStream(res) {
   res.writeHead(200, { "content-type": "text/event-stream" });
   const ev = o => res.write(`event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`);
   ev({ type: "content_block_start", index: 0, content_block: { type: "server_tool_use", name: "web_search" } });
-  const answer = JSON.stringify({ researched: true, summary: "Found the architect's project page and a council media release.",
-    fields: { awards: "Sample Architecture Award, Small Project, 2025", first_peoples_collaborators: "" },
-    add_facets: { environment: ["Climate + Resilience"] }, sources: ["Example Studio project page, https://example.org/tidewater"], caveats: "" });
-  ev({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "I searched.\n" + answer } });
+  ev({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "- Architect: Example Studio with Tidal Landscape (Example Studio, https://example.org/tidewater)\n" } });
+  ev({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "- Won the Sample Architecture Award, Small Project, 2025 (Awards, https://example.org/awards)\n" } });
   ev({ type: "message_stop" });
   res.end();
 }
@@ -88,6 +97,12 @@ http.createServer(async (req, res) => {
       if (b.stream) { fakeClaude(b); return fakeFillStream(res); }
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(fakeClaude(b)));
+    }
+    if (url.pathname === "/fake-vision/v1/images:annotate") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ responses: [{ webDetection: { bestGuessLabels: [{ label: "tidewater weaving pavilion" }],
+        webEntities: [{ description: "Pavilion", score: 0.7 }],
+        pagesWithMatchingImages: [{ url: "https://example.org/tidewater", pageTitle: "Tidewater Weaving Pavilion | Example Studio" }] } }] }));
     }
     if (url.pathname === "/__claude") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(claudeLog)); }
     if (url.pathname === "/fake-site/project.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(FAKE_PAGE); }
