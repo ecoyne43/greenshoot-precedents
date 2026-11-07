@@ -96,6 +96,12 @@ http.createServer(async (req, res) => {
   try {
     if (url.pathname === "/fake-claude/v1/messages") {
       const b = JSON.parse(body.toString());
+      if (b.stream && !(b.system || "").includes("Research a precedent")) {   // streamed JSON answer (Check and fill)
+        const text = fakeClaude({ ...b, stream: false }).content[0].text;
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        for (let i = 0; i < text.length; i += 40) res.write(`event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: text.slice(i, i + 40) } })}\n\n`);
+        return res.end();
+      }
       if (b.stream) { fakeClaude(b); return fakeFillStream(res); }
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(fakeClaude(b)));

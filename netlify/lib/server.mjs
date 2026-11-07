@@ -110,6 +110,23 @@ export async function claude({ system, content, schema, maxTokens = 4000, tools 
   try { return JSON.parse(text); } catch { throw Object.assign(new Error("Claude's answer could not be read"), { status: 502 }); }
 }
 
+// Claude with a JSON answer, streamed straight back to the browser as it is written. For answers that can take a
+// while (Check and fill): Netlify cuts off a function that waits too long before replying, but not one that is
+// already streaming. The page reads the text with readWebText and parses the JSON.
+export async function streamJSON({ system, content, schema, maxTokens = 4000 }) {
+  if (!env("ANTHROPIC_API_KEY")) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
+  const res = await fetch(CLAUDE_URL(), {
+    method: "POST",
+    headers: { "x-api-key": env("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: env("CLAUDE_MODEL", "claude-sonnet-5-5"), max_tokens: maxTokens, stream: true, system,
+      messages: [{ role: "user", content }], output_config: { format: { type: "json_schema", schema } },
+    }),
+  });
+  if (!res.ok) return json({ error: `Claude API error (${res.status}): ${(await res.text()).slice(0, 300)}` }, 502);
+  return new Response(res.body, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+}
+
 // Claude with web search, streamed back to the browser (long searches would time out otherwise).
 export async function streamWithSearch({ system, content, maxUses = 6, maxTokens = 5000 }) {
   if (!env("ANTHROPIC_API_KEY")) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);

@@ -465,7 +465,10 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     } catch (e) { searchNote = `The web search didn't work (${e.message}), so this check uses the record's own text only. `; }
     msg.textContent = "Checking every field...";
     try {
-      const ans = await api("/api/check", { method: "POST", body: { record, notes } });
+      const res = await api("/api/check", { method: "POST", body: { record, notes }, raw: true });
+      let raw;
+      try { raw = JSON.parse(await readWebText(res)); } catch { throw new Error("Groundwork's answer was cut short. Try again."); }
+      const ans = tidyCheck(raw, record);
       const label = k => c.fields.find(f => f.key === k)?.label || (k === "status" ? "Status" : k === "scale" ? "Scale" : k);
       const facetLabel = k => c.facets.find(f => f.key === k)?.label || k;
       const addF = Object.entries(ans.add_facets || {});
@@ -535,6 +538,26 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
 
   draw();
   return { el, read, fill: fillGaps, reset(newRec, newTarget) { rec = newRec; target = newTarget; setPics(); draw(); } };
+}
+
+// Check and fill's answer, tidied: no changes that change nothing, one change per field, only listed categories.
+function tidyCheck(out, record) {
+  const c = st.cfg, same = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+  const fieldKeys = [...c.fields.map(f => f.key), "status", "scale"];
+  const changes = (out.changes || [])
+    .filter(ch => fieldKeys.includes(ch.field) && ch.value && !same(ch.value, record[ch.field]))
+    .filter(ch => (ch.field === "status" ? c.status.includes(ch.value) : ch.field === "scale" ? c.scale.includes(ch.value) : true))
+    .filter((ch, i, a) => a.findIndex(x => x.field === ch.field) === i)
+    .map(ch => ({ ...ch, current: record[ch.field] || "" }));
+  const add_facets = {};
+  for (const f of c.facets) {
+    const have = record.facets?.[f.key] || [];
+    const add = [...new Set(out.add_facets?.[f.key] || [])].filter(v => f.values.includes(v) && !have.includes(v));
+    if (add.length) add_facets[f.key] = add;
+  }
+  const add_tags = [...new Set((out.add_tags || []).map(t => String(t).toLowerCase().trim()))].filter(t => t && !(record.tags || []).includes(t));
+  const add_sources = [...new Set(out.add_sources || [])].filter(x => x && !(record.sources || []).includes(x));
+  return { summary: out.summary || "", changes, add_facets, add_tags, add_sources, caveats: out.caveats || "" };
 }
 
 function openEditor({ record, targetId }) {

@@ -96,7 +96,9 @@ sources) and research notes from a web search (possibly empty).
   other_team.
 - Change a field that already has a value only when the notes clearly show it is wrong or incomplete, and say why.
 - Never invent. Every change needs a reason and a source: a url from the notes, or "record text".
-- Summary stays 60 to 90 words. Do not rewrite text fields just for style.
+- Summary stays 60 to 90 words. Do not rewrite text fields just for style. Only propose a new summary or
+  description when it is missing or contains something wrong; otherwise leave long text fields alone.
+- Keep it short: one change per field, reasons of one sentence.
 - add_facets: only category values from the lists that the material clearly supports and the record lacks.
 - add_sources: notes sources you relied on, as "Title, url".
 - summary: one sentence on what you checked and found. caveats: anything uncertain, or "".
