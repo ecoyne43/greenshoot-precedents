@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Precedents · Groundworked</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <form id="login-form" class="login-card">
+    <div class="mark">G</div>
+    <h1>Precedents</h1>
+    <p class="muted">Greenshoot's shared precedents library, by Groundworked.</p>
+    <label for="login-pw">Team password</label>
+    <input id="login-pw" type="password" autocomplete="current-password" required>
+    <label for="login-name">Your name</label>
+    <input id="login-name" autocomplete="name" placeholder="So the team knows who added what" required>
+    <button class="btn primary" type="submit">Open the library</button>
+    <p class="msg" id="login-msg" role="status"></p>
+  </form>
+</div>
+
+<div id="app" class="app" hidden>
+  <header class="top">
+    <a class="brand" href="#/library"><span class="mark">G</span><span class="brand-text"><b>Precedents</b><small>Greenshoot · Groundworked</small></span></a>
+    <nav class="tabs">
+      <a href="#/library" data-tab="library">Library <span class="count" id="lib-count"></span></a>
+      <a href="#/inbox" data-tab="inbox">Inbox <span class="count badge" id="inbox-count"></span></a>
+      <a href="#/add" data-tab="add">Add</a>
+    </nav>
+    <div class="who">
+      <a class="link" href="start.html" target="_blank">Get started</a>
+      <button class="chip-btn" id="who" title="Change your name"></button>
+    </div>
+  </header>
+  <main id="view"></main>
+</div>
+
+<div id="modal" class="modal" hidden><div class="modal-card" id="modal-card"></div></div>
+<div id="toast" class="toast" role="status" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

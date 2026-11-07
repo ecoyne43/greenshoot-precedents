@@ -1,0 +1,113 @@
+// Local test server: serves public/, runs the Netlify functions, and fakes GitHub (a local folder), Netlify Blobs
+// (a local folder) and Claude (canned answers). Also serves a fake project web page for testing the inbox.
+//   node dev/mock-server.mjs [port]      password: test     data: dev/run/
+import http from "node:http";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, extname, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const PORT = +(process.argv[2] || 8899);
+const RUN = process.env.RUN_DIR || join(ROOT, "dev/run");
+mkdirSync(RUN, { recursive: true });
+Object.assign(process.env, {
+  APP_PASSWORD: "test", LOCAL_DATA_DIR: join(RUN, "data"), BLOBS_DIR: join(RUN, "blobs"), ALLOW_LOCAL_FETCH: "1",
+  ANTHROPIC_API_KEY: "fake", ANTHROPIC_BASE_URL: `http://localhost:${PORT}/fake-claude`,
+});
+
+const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
+  research: "research", img: "img", "proxy-image": "proxy-image" };
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
+export const claudeLog = [];
+
+// ---------- fake Claude ----------
+function fakeClaude(body) {
+  const sys = body.system || "";
+  const userText = (body.messages?.[0]?.content || []);
+  const text = typeof userText === "string" ? userText : userText.filter(c => c.type === "text").map(c => c.text).join("\n");
+  const nImages = typeof userText === "string" ? 0 : userText.filter(c => c.type === "image").length;
+  claudeLog.push({ kind: sys.includes("Draft ONE") ? "draft" : sys.includes("Fill gaps") ? "fill" : "ask", nImages, text: text.slice(0, 400) });
+  if (body.stream) return null;
+  let out;
+  if (sys.includes("Draft ONE")) {
+    out = {
+      name: "Tidewater Weaving Pavilion", also_known_as: "", location_text: "Foreshore Reserve, Port Sample VIC", city: "Port Sample",
+      state: "VIC", country: "Australia", country_to: "", year_completed: "2024", architect: "Example Studio",
+      landscape_architect: "", artists: "", first_peoples_collaborators: "", client: "Sample Shire Council", other_team: "", awards: "",
+      summary: "A timber pavilion on a coastal foreshore whose roof screens draw on woven fish-trap forms. It gives shade and a gathering place beside a restored saltmarsh, with seating set around a central fire pit for community events and ceremony.",
+      why_it_matters: "Shows how a woven pattern can become structure rather than surface decoration, and how a small shelter can hold both everyday use and ceremony.",
+      description: "Completed in 2024 for the Sample Shire Council, the pavilion sits at the edge of a restored saltmarsh.",
+      status: "Built", scale: "Building",
+      facets: { project_type: ["Park + Open Space"], design_element: ["Shelter + Pavilion", "Screen", "Roof + Ceiling + Soffit"],
+        cultural_expression: ["Pattern + Graphics"], dwc_themes: ["Gathering Place", "Ceremony"], environment: ["Wetlands"],
+        materials: ["Timber", "Fibre + Weaving"], programme: ["Public Programs + Events"], involvement: ["Not documented"] },
+      tags: ["fish trap", "fire pit", "coastal"], sources: [],
+      images: Array.from({ length: nImages }, (_, n) => ({ image_type: n === 1 ? "Aerial" : n === 2 ? "Detail" : "Photo", caption: `View ${n + 1} of the pavilion`, keep: n !== 3, credit: "Example Studio" })),
+      confidence: "medium", notes: "The page does not say who the Traditional Owners are or how they were involved.",
+    };
+  } else {
+    const lines = text.split("LIBRARY INDEX:")[1]?.trim().split("\n") || [];
+    const ask = (text.split("LIBRARY INDEX:")[0] || "").toLowerCase();
+    const words = ask.replace(/[^a-z ]/g, " ").split(/\s+/).filter(w => w.length > 3 && !["request", "precedent", "brief", "project", "with", "that"].includes(w));
+    const hits = lines.map(l => [l, words.filter(w => l.toLowerCase().includes(w)).length]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    out = { summary: hits.length ? `${hits.length} precedents fit, the first two most closely.` : "Nothing in the library fits that well.",
+      results: hits.map(([l]) => ({ id: l.split(" | ")[0], reason: `Matches on ${words.filter(w => l.toLowerCase().includes(w)).slice(0, 3).join(", ")}.` })) };
+  }
+  return { content: [{ type: "text", text: JSON.stringify(out) }] };
+}
+
+function fakeFillStream(res) {
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  const ev = o => res.write(`event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`);
+  ev({ type: "content_block_start", index: 0, content_block: { type: "server_tool_use", name: "web_search" } });
+  const answer = JSON.stringify({ researched: true, summary: "Found the architect's project page and a council media release.",
+    fields: { awards: "Sample Architecture Award, Small Project, 2025", first_peoples_collaborators: "" },
+    add_facets: { environment: ["Climate + Resilience"] }, sources: ["Example Studio project page, https://example.org/tidewater"], caveats: "" });
+  ev({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "I searched.\n" + answer } });
+  ev({ type: "message_stop" });
+  res.end();
+}
+
+// ---------- fake project page (for the inbox test) ----------
+const FAKE_PAGE = `<!doctype html><html><head><title>Tidewater Weaving Pavilion / Example Studio</title>
+<meta property="og:site_name" content="Sample Architecture News"><meta property="og:image" content="/fake-site/a.jpg"></head>
+<body><h1>Tidewater Weaving Pavilion</h1><p>Example Studio has completed a timber pavilion on the foreshore at Port Sample, its roof screens drawing on woven fish-trap forms.</p>
+<img src="/fake-site/a.jpg" width="1200" height="800"><img src="/fake-site/b.jpg" width="1200" height="800"><img src="/fake-site/c.jpg" width="1200" height="800"><img src="/fake-site/d.jpg" width="1200" height="800"></body></html>`;
+
+// ---------- server ----------
+const mods = {};
+async function fn(name) { return (mods[name] ||= (await import(join(ROOT, "netlify/functions", name + ".mjs"))).default); }
+
+http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const chunks = []; for await (const c of req) chunks.push(c);
+  const body = Buffer.concat(chunks);
+  try {
+    if (url.pathname === "/fake-claude/v1/messages") {
+      const b = JSON.parse(body.toString());
+      if (b.stream) { fakeClaude(b); return fakeFillStream(res); }
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify(fakeClaude(b)));
+    }
+    if (url.pathname === "/__claude") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(claudeLog)); }
+    if (url.pathname === "/fake-site/project.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(FAKE_PAGE); }
+    if (url.pathname.startsWith("/fake-site/")) {
+      const p = join(RUN, "fake-site", url.pathname.slice(11));
+      if (existsSync(p)) { res.writeHead(200, { "content-type": "image/jpeg" }); return res.end(readFileSync(p)); }
+    }
+    const m = url.pathname.match(/^\/api\/([a-z-]+)$/);
+    if (m && ROUTES[m[1]]) {
+      const handler = await fn(ROUTES[m[1]]);
+      const r = new Request(url, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : body });
+      const out = await handler(r);
+      res.writeHead(out.status, Object.fromEntries(out.headers));
+      if (out.body) { for await (const c of out.body) res.write(c); }
+      return res.end();
+    }
+    let p = join(ROOT, "public", url.pathname === "/" ? "index.html" : url.pathname);
+    if (existsSync(p) && !p.endsWith("/")) { res.writeHead(200, { "content-type": TYPES[extname(p)] || "application/octet-stream" }); return res.end(readFileSync(p)); }
+    res.writeHead(404); res.end("not found");
+  } catch (e) {
+    console.error(e); res.writeHead(500); res.end(String(e.stack || e));
+  }
+}).listen(PORT, () => console.log(`Mock server on http://localhost:${PORT}`));

@@ -1,0 +1,14 @@
+{
+  "name": "greenshoot-precedents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Groundworked Precedents: Greenshoot's shared, searchable library of built-project precedents.",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@netlify/blobs": "11.1.1"
+  },
+  "scripts": {
+    "dev": "node dev/mock-server.mjs"
+  }
+}

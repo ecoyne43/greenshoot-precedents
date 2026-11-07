@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get started · Precedents</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="start">
+<header class="top"><a class="brand" href="/"><span class="mark">G</span><span class="brand-text"><b>Precedents</b><small>Greenshoot · Groundworked</small></span></a></header>
+<main class="page">
+  <h1>Get started with Precedents</h1>
+  <p class="lead">Greenshoot's shared library of built-project precedents. Anyone on the team can send precedents in from the web, check what Groundwork drafts, and search the whole collection. It takes about two minutes to set up.</p>
+
+  <ol class="steps">
+    <li><h2>Open the library</h2>
+      <p>Go to <a id="home" href="/"></a> and sign in with the team password (ask Ed) and your name. Your name goes on everything you add or approve. Bookmark the page.</p></li>
+    <li><h2>Add the Send button to your browser</h2>
+      <p><b>Browser extension</b> (Chrome or Edge, on Mac or Windows): <span class="muted">coming soon. Until then, use the bookmark button:</span></p>
+      <p><b>Bookmark button</b> (any browser): show your bookmarks bar (Ctrl+Shift+B on Windows, Cmd+Shift+B on Mac), then drag this button onto it.</p>
+      <p><a class="btn primary bm-btn" id="bm" href="#" onclick="return false">Send to Precedents</a></p>
+      <p class="muted small">On a project page (ArchDaily, a practice website, a news story), highlight any useful text, then click the button. Tick the images worth keeping, add a note, and send.</p></li>
+    <li><h2>Optional: the Mac desktop widget</h2>
+      <p>For screenshots and text from PDFs and other apps on a Mac. Ask Ed for the Groundwork Capture app.</p></li>
+  </ol>
+
+  <h2 class="sec">How it works</h2>
+  <div class="how">
+    <div><b>1. Send</b><p>From a web page, or upload your own site photos on the Add page.</p></div>
+    <div><b>2. Groundwork drafts</b><p>It reads the page and images, fills in the details, chooses the categories and checks the library for duplicates.</p></div>
+    <div><b>3. Anyone approves</b><p>Open the Inbox, check the draft, fix anything, and approve. It's then in the library, credited to whoever sent and approved it.</p></div>
+    <div><b>4. Search</b><p>Filter by category, search by keyword, or Ask Groundwork in plain words. Open any precedent and use Find similar.</p></div>
+  </div>
+</main>
+<script type="module">
+  import { bookmarklet } from "./bookmarklet.js";
+  document.getElementById("bm").href = bookmarklet(location.origin);
+  const h = document.getElementById("home"); h.href = location.origin + "/"; h.textContent = location.host;
+</script>
+</body>
+</html>
