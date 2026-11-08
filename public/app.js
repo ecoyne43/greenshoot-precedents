@@ -297,7 +297,7 @@ function renderInbox(id) {
   const li = i => `<a class="ib ${i.id === id ? "on" : ""}" href="#/inbox/${i.id}">
       <div class="ib-ph">${inboxThumb(i)}</div>
       <div class="ib-t"><b>${esc(i.draft?.record?.name || i.title || i.site || (i.uploads?.length ? `${i.uploads.length} photo${i.uploads.length > 1 ? "s" : ""}` : "Untitled"))}</b>
-      <span>${esc(i.by)} · ${ago(i.created)}${i.status === "approved" ? ` · <em class="ok">added ${esc(i.record_id || "")}</em>` : i.status === "discarded" ? " · discarded" : i.draft ? " · drafted" : ""}</span></div></a>`;
+      <span>${esc(i.by)} · ${ago(i.created)}${i.status === "approved" ? ` · <em class="ok">${i.merged ? "merged into" : "new"} ${esc(i.record_id || "")}</em>` : i.status === "discarded" ? " · discarded" : i.draft ? " · drafted" : ""}</span></div></a>`;
   view.innerHTML = `
   <div class="inbox">
     <aside class="ib-list">
@@ -313,7 +313,7 @@ function renderInbox(id) {
 async function openReview(item) {
   const box = document.getElementById("ib-main");
   if (item.status !== "new") {
-    box.innerHTML = `<div class="empty">${item.status === "approved" ? `Added to the library as <a href="#/p/${item.record_id}">${esc(item.record_id)}</a> by ${esc(item.status_by)}.` : `Discarded by ${esc(item.status_by)}.`}
+    box.innerHTML = `<div class="empty">${item.status === "approved" ? `${item.merged ? "Merged into" : "Added to the library as"} <a href="#/p/${item.record_id}">${esc(item.record_id)}</a> by ${esc(item.status_by)}.` : `Discarded by ${esc(item.status_by)}.`}
       <p><button class="btn" id="reopen">Put back in the inbox</button> <button class="btn danger" id="del">Delete for good</button></p></div>`;
     document.getElementById("reopen").onclick = async () => { await api("/api/inbox", { method: "PATCH", body: { id: item.id, status: "new" } }); await loadInbox(); route(); };
     document.getElementById("del").onclick = async () => { await api(`/api/inbox?id=${item.id}`, { method: "DELETE" }); await loadInbox(); location.hash = "#/inbox"; };

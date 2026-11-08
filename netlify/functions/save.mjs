@@ -52,7 +52,7 @@ export default handle(async (req) => {
   const res = await writeLibrary(next, sha, msg);
 
   if (item) {
-    item.status = "approved"; item.status_by = me; item.record_id = id;
+    item.status = "approved"; item.status_by = me; item.record_id = id; item.merged = !!old;
     await box.setJSON(item.id, item);
   }
   return json({ record: out, commitUrl: res.commitUrl });

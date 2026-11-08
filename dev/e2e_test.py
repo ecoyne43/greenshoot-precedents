@@ -101,6 +101,10 @@ with sync_playwright() as p:
     pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=20000)
     data = json.load(open(f"{RUN}/data/precedents.json"))
     check(len(data["records"]) == 10, "merge did not add a new record")
+    pg.goto(BASE + "/#/inbox"); pg.wait_for_selector(".ib")
+    labels = pg.locator(".ib-t span").all_inner_texts()
+    check(any("merged into PR-0010" in t for t in labels) and any("new PR-0010" in t for t in labels), "inbox shows one new and one merged send")
+    pg.goto(BASE + "/#/p/PR-0010"); pg.wait_for_selector("#edit")
 
     # edit
     pg.click("#edit"); pg.wait_for_selector("#modal .rf")
