@@ -67,17 +67,25 @@ function overlap(a, b) {
   let n = 0; for (const w of A) if (B.has(w)) n++;
   return n / Math.min(A.size, B.size);
 }
-export function findDuplicates(draft, records) {
+export function findDuplicates(draft, records, aiMatches = []) {
   const out = [];
+  const add = (r, why) => { if (r && !out.some(x => x.id === r.id)) out.push({ id: r.id, name: r.name, why }); };
+  // Groundwork's own judgement first (it reads the whole library while drafting), then simple name and place checks.
+  for (const m of aiMatches) add(records.find(r => r.id === m.id), m.reason || "Groundwork thinks it's the same project");
+  const names = r => [r.name, r.also_known_as].filter(Boolean);
+  const samePlace = r => (draft.city && norm(r.city) === norm(draft.city)) || overlap(r.location_text, draft.location_text) >= 0.6;
   for (const r of records) {
-    let why = "";
-    if (norm(r.name) && norm(r.name) === norm(draft.name)) why = "Same name";
-    else if (overlap(r.name, draft.name) >= 0.75 || [r.also_known_as, r.name].some(n => n && overlap(n, draft.also_known_as || "") >= 0.75)) why = "Similar name";
-    else if (draft.architect && norm(r.architect) === norm(draft.architect) && draft.city && norm(r.city) === norm(draft.city)) why = "Same designer and city";
-    if (why) out.push({ id: r.id, name: r.name, why });
+    const best = Math.max(0, ...names(r).flatMap(a => names(draft).map(b => overlap(a, b))));
+    if (norm(r.name) && norm(r.name) === norm(draft.name)) add(r, "Same name");
+    else if (best >= 0.75) add(r, "Similar name");
+    else if (best >= 0.5 && samePlace(r)) add(r, "Similar name, same place");
+    else if (draft.architect && norm(r.architect) === norm(draft.architect) && samePlace(r)) add(r, "Same designer and place");
   }
   return out.slice(0, 5);
 }
+
+// One short line per record, for Groundwork to spot a send that's already in the library.
+export const shortLine = r => `${r.id} | ${r.name}${r.also_known_as ? ` (also ${r.also_known_as})` : ""} | ${r.location_text || [r.city, r.state, r.country].filter(Boolean).join(", ")} | ${[r.architect, r.landscape_architect, r.artists].filter(Boolean).join("; ")}`;
 
 // A short line per record for Claude to search over (Ask the library, Find similar).
 export function indexLine(r) {

@@ -65,11 +65,11 @@ with sync_playwright() as p:
     pg.screenshot(path=f"{OUT}/5_review.png", full_page=True)
 
     # check and fill online: every field, from the web notes and the record's own text
-    pg.click("#fill"); pg.wait_for_selector("#use")
+    pg.click("#fill"); pg.wait_for_selector("#fill-out [data-use]")
     check(pg.locator("[data-chg]").count() == 3, f"3 field changes proposed (got {pg.locator('[data-chg]').count()})")
     check(pg.locator("[data-chg]:checked").count() == 2, "new info ticked, change to a filled field unticked")
     pg.screenshot(path=f"{OUT}/11_check.png", full_page=True)
-    pg.click("#use")
+    pg.click("#fill-out [data-use]")
     check("Sample Architecture Award" in pg.input_value('input[name="awards"]'), "check adds the award from the web")
     check("Greenshoot" in pg.input_value('input[name="first_peoples_collaborators"]'), "check fills a field from the record's own text")
     check(pg.input_value('input[name="architect"]') == "Example Studio", "unticked change to the architect not applied")
@@ -113,13 +113,52 @@ with sync_playwright() as p:
     check("2025" in pg.locator(".sub").inner_text(), "edit saves")
     check("Edit PR-0010" in open(f"{RUN}/data/_commits.log").read(), "edit commit message")
 
+    # "Add to this precedent" from a record page: link + photo + note, reviewed in the inbox as an addition
+    pg.goto(BASE + "/#/p/PR-0001"); pg.wait_for_selector("#addto")
+    n_before = len([r for r in json.load(open(f"{RUN}/data/precedents.json"))["records"] if r["id"] == "PR-0001"][0]["images"])
+    pg.click("#addto"); pg.wait_for_selector("#addto-form")
+    pg.fill('#addto-form input[name="url"]', BASE + "/fake-site/project.html")
+    pg.set_input_files("#at-files", [f"{RUN}/fake-site/a.jpg"])
+    pg.fill('#addto-form textarea[name="note"]', "Photos from our site visit")
+    pg.click("#at-send")
+    try: pg.wait_for_selector("#prop-top [data-chg]", timeout=60000)
+    except Exception:
+        print("DEBUG url", pg.url, "|", pg.inner_text("body")[:900].replace("\n", " | ")); raise
+    check("Adding to PR-0001" in pg.locator(".target").inner_text(), "addition opens in the inbox, aimed at PR-0001")
+    check(pg.locator("#prop-top [data-chg]:checked").count() == 2, "Groundwork proposes what the new material adds, all ticked")
+    pg.screenshot(path=f"{OUT}/12_add_to.png", full_page=True)
+    pg.click("#prop-top [data-use]")
+    check("Added context" in pg.input_value('textarea[name="description"]'), "new context goes into the description")
+    check("Approve and update PR-0001" in pg.locator("#save").inner_text(), "approving updates PR-0001")
+    pg.click("#save"); pg.wait_for_selector(".rec-h h1:has-text('Riverbend')", timeout=60000)
+    rec1 = [r for r in json.load(open(f"{RUN}/data/precedents.json"))["records"] if r["id"] == "PR-0001"][0]
+    check(len(rec1["images"]) > n_before and rec1["awards"] == "Sample Award 2026", "PR-0001 has the new photos and details")
+    check(len(json.load(open(f"{RUN}/data/precedents.json"))["records"]) == 10, "no new record made")
+    check("new material from" in pg.locator(".attrib").inner_text(), "record shows who added material")
+
+    # in the inbox: Groundwork spots a match across the library; or choose one by hand
+    item5 = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "title": "Another angle", "note": "riverbend test", "from": "web"})["item"]
+    pg.goto(BASE + f"/#/inbox/{item5['id']}"); pg.wait_for_selector(".srcstrip:has-text('riverbend test') ~ #form-host .rf", timeout=60000)
+    check("PR-0001" in pg.locator(".dupes").inner_text(), "Groundwork spots it's already in the library (different name)")
+    pg.click("#pick-existing"); pg.wait_for_selector("#pick-q")
+    pg.fill("#pick-q", "saltmarsh"); pg.click(".pick")
+    pg.wait_for_selector("#prop-top [data-chg]", timeout=60000)
+    check("Adding to PR-0002" in pg.locator(".target").inner_text(), "picked precedent becomes the target")
+    pg.screenshot(path=f"{OUT}/13_picker_merge.png", full_page=True)
+    pg.click("#unmerge")
+    check(pg.locator(".target").count() == 0 and pg.locator("#prop-top [data-chg]").count() == 0, "can switch back to a new precedent")
+    pg.click("#discard"); pg.wait_for_selector("#toast:has-text('Discarded')")
+
     # sent as just an image: Groundwork identifies it online straight away
     item3 = post("/api/inbox", {"images": [BASE + "/fake-site/c.jpg"], "from": "upload"})["item"]
-    pg.goto(BASE + f"/#/inbox/{item3['id']}"); pg.wait_for_selector("#use", timeout=30000)
+    pg.goto(BASE + f"/#/inbox/{item3['id']}")
+    try: pg.wait_for_selector("#fill-out [data-use]", timeout=30000)
+    except Exception:
+        print("DEBUG", pg.url, pg.inner_text("#ib-main")[:700].replace("\n", " | ")); raise
     log = json.load(urllib.request.urlopen(BASE + "/__claude"))
     check(any(x["kind"] == "research" and x["nImages"] == 1 for x in log), "image sent to the web research step")
     check(any(x["kind"] == "research" and "REVERSE IMAGE SEARCH" in x["text"] for x in log), "reverse image search leads passed on")
-    pg.click("#use")
+    pg.click("#fill-out [data-use]")
     check(pg.input_value('input[name="name"]') == "Tidewater Weaving Pavilion", "image-only item gets identified")
 
     # many big photos: must not hit Netlify's 6 MB request limit when approving

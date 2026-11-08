@@ -231,6 +231,7 @@ function renderRecord(id) {
     <div class="rec-top"><a class="link" href="#/library">← Library</a>
       <div class="rec-actions">
         <button class="btn" id="similar">Find similar</button>
+        <button class="btn" id="addto">Add to this precedent</button>
         <button class="btn" id="edit">Edit</button>
       </div></div>
     <header class="rec-h">
@@ -268,7 +269,7 @@ function renderRecord(id) {
         </dl>
         <div class="attrib">
           <p>Sent by <b>${esc(r.added_by)}</b>, approved by <b>${esc(r.approved_by)}</b>, ${fmtDate(r.added)}</p>
-          ${r.edited_by ? `<p>Last edited by <b>${esc(r.edited_by)}</b>, ${fmtDate(r.updated)}</p>` : ""}
+          ${(r.history || []).filter(h => !/^added/.test(h.what)).reverse().slice(0, 6).map(h => `<p>${fmtDate(h.date)}: ${/from inbox/.test(h.what) ? `new material from <b>${esc((h.what.match(/sent by ([^)]+)/) || [])[1] || h.by)}</b>, approved by <b>${esc(h.by)}</b>` : `edited by <b>${esc(h.by)}</b>`}</p>`).join("")}
         </div>
       </aside>
     </div>
@@ -281,6 +282,76 @@ function renderRecord(id) {
   view.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { st.filters = { [b.dataset.filter]: [b.dataset.v] }; st.q = ""; st.ask = null; location.hash = "#/library"; });
   document.getElementById("similar").onclick = () => runAsk({ similar: r.id }, `Similar to ${r.name}`);
   document.getElementById("edit").onclick = () => openEditor({ record: structuredClone(r), targetId: r.id });
+  document.getElementById("addto").onclick = () => openAddTo(r);
+}
+
+// "Add to this precedent": a link, photos and a note for a precedent that's already in the library. It goes to the
+// inbox like everything else, marked for this precedent, and opens there so Groundwork can propose what to add.
+function openAddTo(r) {
+  const m = document.getElementById("modal"), card = document.getElementById("modal-card");
+  card.innerHTML = `<div class="modal-h"><h2>Add to ${esc(r.id)} ${esc(r.name)}</h2><button class="link" id="mclose">Cancel</button></div>
+    <form id="addto-form" class="addto-form">
+      <p class="muted">New photos, a web page with more about it, or just context in a note. Groundwork reads it alongside the existing entry and suggests what to add; you check it in the inbox.</p>
+      <label class="fl long"><span>Web page <em>optional</em></span><input name="url" type="url" placeholder="https://..."></label>
+      <label class="drop" id="at-drop"><input type="file" accept="image/*" multiple hidden id="at-files"><span><b>Drop photos here</b>, paste (Cmd/Ctrl+V), or click to choose <em>optional, up to 8</em></span></label>
+      <div class="drop-list" id="at-list"></div>
+      <label class="fl long"><span>Note or context <em>optional</em></span><textarea name="note" rows="3" placeholder="e.g. Photos from our site visit, Nov 2026. The panels were designed with Wurundjeri women Elders..."></textarea></label>
+      <div class="rf-actions"><span></span><button class="btn primary" id="at-send">Send and review</button></div>
+      <p class="msg" id="at-msg" role="status"></p>
+    </form>`;
+  m.hidden = false; document.body.classList.add("noscroll");
+  document.getElementById("mclose").onclick = closeModal;
+  const pick = photoPicker(document.getElementById("at-drop"), document.getElementById("at-files"), document.getElementById("at-list"));
+  document.getElementById("addto-form").onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target), url = String(fd.get("url") || "").trim(), note = String(fd.get("note") || "").trim();
+    const btn = document.getElementById("at-send"), msg = document.getElementById("at-msg");
+    if (!url && !note && !pick.count()) { msg.className = "msg bad"; msg.textContent = "Add a link, some photos or a note."; return; }
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "Sending...";
+    try {
+      const item = await sendToInbox({ url, note, target: r.id, title: url ? "" : `More for ${r.name}` }, pick.files(), pick.webImgs());
+      pick.stop(); closeModal(); await loadInbox();
+      location.hash = `#/inbox/${item.id}`;
+    } catch (err) { msg.className = "msg bad"; msg.textContent = `Couldn't send: ${err.message}`; btn.disabled = false; }
+  };
+}
+
+// Send something to the inbox. Photos are shrunk and go up in batches under 3.5 MB (Netlify refuses requests over
+// about 6 MB). Returns the inbox item.
+async function sendToInbox(body, files = [], webImgs = []) {
+  const batches = [[]]; let size = 0;
+  for (const f of files) {
+    const up = { data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString() };
+    if (size + up.data.length > 3_500_000 && batches.at(-1).length) { batches.push([]); size = 0; }
+    batches.at(-1).push(up); size += up.data.length;
+  }
+  const { item } = await api("/api/inbox", { method: "POST", body: { ...body, from: files.length && !body.url ? "upload" : body.from || "web", uploads: batches[0], images: webImgs } });
+  for (const b of batches.slice(1)) await api("/api/inbox", { method: "PATCH", body: { id: item.id, uploads: b } });
+  return item;
+}
+
+// A photo drop zone: files, pasted screenshots and images dragged from other web pages (up to 8 in all).
+function photoPicker(drop, input, list) {
+  let files = [], webImgs = [];
+  const show = () => { list.innerHTML = files.map(f => `<span>${esc(f.name || "pasted image")}</span>`).join("") + webImgs.map(u => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join(""); };
+  const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 8 - webImgs.length); show(); };
+  input.onchange = () => add(input.files);
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => {
+    e.preventDefault(); drop.classList.remove("over");
+    const dt = e.dataTransfer;
+    if ([...dt.files].some(f => f.type.startsWith("image/"))) return add(dt.files);
+    // An image dragged from another web page arrives as its address.
+    const html = dt.getData("text/html"), m = html && html.match(/<img[^>]+src=["']([^"']+)/i);
+    const u = (m && m[1]) || dt.getData("text/uri-list").split("\n").find(l => /^https?:/.test(l.trim())) || "";
+    if (/^https?:/.test(u.trim())) { webImgs = [...new Set([...webImgs, u.trim()])].slice(0, 8 - files.length); show(); }
+    else toast("That didn't come through as an image. Try saving it and dropping the file.");
+  };
+  const onPaste = e => { if (!document.body.contains(drop)) return stop(); const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); add(f); } };
+  const stop = () => document.removeEventListener("paste", onPaste);
+  document.addEventListener("paste", onPaste);
+  return { files: () => files, webImgs: () => webImgs, count: () => files.length + webImgs.length, stop, clear() { files = []; webImgs = []; show(); } };
 }
 
 // ---------- inbox ----------
@@ -296,7 +367,7 @@ function renderInbox(id) {
   const cur = id ? st.inbox.find(i => i.id === id) : null;
   const li = i => `<a class="ib ${i.id === id ? "on" : ""}" href="#/inbox/${i.id}">
       <div class="ib-ph">${inboxThumb(i)}</div>
-      <div class="ib-t"><b>${esc(i.draft?.record?.name || i.title || i.site || (i.uploads?.length ? `${i.uploads.length} photo${i.uploads.length > 1 ? "s" : ""}` : "Untitled"))}</b>
+      <div class="ib-t"><b>${i.target ? `+ ${esc(i.target)} ${esc(byId(i.target)?.name || "")}` : esc(i.draft?.record?.name || i.title || i.site || (i.uploads?.length ? `${i.uploads.length} photo${i.uploads.length > 1 ? "s" : ""}` : "Untitled"))}</b>
       <span>${esc(i.by)} · ${ago(i.created)}${i.status === "approved" ? ` · <em class="ok">${i.merged ? "merged into" : "new"} ${esc(i.record_id || "")}</em>` : i.status === "discarded" ? " · discarded" : i.draft ? " · drafted" : ""}</span></div></a>`;
   view.innerHTML = `
   <div class="inbox">
@@ -333,19 +404,49 @@ async function openReview(item) {
     if (!location.hash.endsWith(item.id)) return;   // moved on while drafting
   }
   const d = item.draft;
+  const dupes = (d.duplicates || []).filter(x => byId(x.id));
   box.innerHTML = `${sourceStrip(item)}
-    ${d.duplicates?.length ? `<div class="dupes"><b>Possibly already in the library:</b> ${d.duplicates.map(x => `<span><a href="#/p/${x.id}" target="_blank">${x.id} ${esc(x.name)}</a> <em>(${esc(x.why)})</em> <button class="link" data-merge="${x.id}">Add to this one instead</button></span>`).join(" ")}</div>` : ""}
+    ${dupes.length ? `<div class="dupes"><b>Possibly already in the library:</b> ${dupes.map(x => `<span><a href="#/p/${x.id}" target="_blank">${x.id} ${esc(byId(x.id).name)}</a> <em>(${esc(x.why)})</em> <button class="link" data-merge="${x.id}">Add to this one instead</button></span>`).join(" ")}</div>` : ""}
+    <div class="addto-row"><button class="btn" id="pick-existing">Add to an existing precedent...</button><span class="muted small">If this is already in the library, choose it: Groundwork reads both and proposes what to add.</span></div>
     ${d.notes || d.confidence === "low" ? `<div class="note-box"><b>Check:</b> ${esc(d.notes || "Groundwork wasn't confident about this draft.")}</div>` : ""}
     <div id="form-host"></div>`;
   const form = editorForm({ record: d.record, draftImages: d.images, item });
   document.getElementById("form-host").append(form.el);
+  box.querySelectorAll("[data-merge]").forEach(b => b.onclick = () => form.mergeWith(b.dataset.merge));
+  document.getElementById("pick-existing").onclick = async () => {
+    const id = await pickPrecedent(d.record);
+    if (id) form.mergeWith(id);
+  };
+  if (item.target && byId(item.target)) form.mergeWith(item.target);   // sent with "Add to this precedent"
   // Sent as just an image (no page, no text): Groundwork tries to identify the project online straight away.
-  if (!item.url && !item.text && !item.checked) { item.checked = true; form.fill(); }
-  box.querySelectorAll("[data-merge]").forEach(b => b.onclick = () => {
-    const target = byId(b.dataset.merge);
-    const merged = mergeInto(structuredClone(target), form.read());
-    form.reset(merged, b.dataset.merge);
-    toast(`Merged into ${target.id}. Check the fields, then approve.`);
+  else if (!item.url && !item.text && !item.checked) { item.checked = true; form.fill(); }
+}
+
+// Choose a precedent from the library (searchable list). Resolves with its id, or null.
+function pickPrecedent(hint = {}) {
+  return new Promise(resolve => {
+    const m = document.getElementById("modal"), card = document.getElementById("modal-card");
+    const done = id => { closeModal(); resolve(id); };
+    card.innerHTML = `<div class="modal-h"><h2>Add to an existing precedent</h2><button class="link" id="mclose">Cancel</button></div>
+      <input id="pick-q" type="search" placeholder="Search by name, place or designer" autocomplete="off">
+      <div class="pick-list" id="pick-list"></div>`;
+    const words = String(hint.name || "").toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    const score = r => words.filter(w => haystack(r).includes(w)).length;
+    const show = q => {
+      const qs = q.toLowerCase().split(/\s+/).filter(Boolean);
+      const list = st.records.filter(r => qs.every(w => haystack(r).includes(w)))
+        .sort((a, b) => (q ? 0 : score(b) - score(a)) || a.name.localeCompare(b.name)).slice(0, 60);
+      document.getElementById("pick-list").innerHTML = list.length ? list.map(r => `<button class="pick" data-id="${r.id}">
+        <span class="pick-ph">${primary(r) ? img(primary(r).thumb_key) : ""}</span>
+        <span><b>${esc(r.name)}</b><br><span class="muted small">${r.id} · ${esc(place(r))}${designers(r) ? ` · ${esc(designers(r))}` : ""}</span></span></button>`).join("")
+        : `<p class="muted pad">No precedents match.</p>`;
+      card.querySelectorAll(".pick").forEach(b => b.onclick = () => done(b.dataset.id));
+    };
+    m.hidden = false; document.body.classList.add("noscroll");
+    document.getElementById("mclose").onclick = () => done(null);
+    const q = document.getElementById("pick-q");
+    q.oninput = () => show(q.value.trim());
+    show(""); q.focus();
   });
 }
 
@@ -356,15 +457,6 @@ function sourceStrip(i) {
     ${i.note ? `<div class="nt">“${esc(i.note)}”</div>` : ""}
     ${i.text ? `<details><summary>Highlighted text</summary><p class="pre small">${esc(i.text.slice(0, 3000))}</p></details>` : ""}
   </div>`;
-}
-
-// When a sent precedent is already in the library: keep the existing record and add what is new.
-function mergeInto(target, add) {
-  for (const f of st.cfg.fields) if (!target[f.key] && add[f.key]) target[f.key] = add[f.key];
-  for (const f of st.cfg.facets) target.facets[f.key] = [...new Set([...(target.facets[f.key] || []), ...(add.facets[f.key] || [])])];
-  target.tags = [...new Set([...(target.tags || []), ...add.tags])];
-  target.sources = [...new Set([...(target.sources || []), ...add.sources])];
-  return target;
 }
 
 // ---------- the record form (inbox review and edit) ----------
@@ -389,7 +481,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
 
   const draw = () => {
     el.innerHTML = `
-    ${target ? `<div class="target">Saving to <b>${esc(target)}</b> ${esc(byId(target)?.name || "")}${item ? ` <button type="button" class="link" id="unmerge">Make it a new precedent instead</button>` : ""}</div>` : ""}
+    ${target ? `<div class="target">${item ? "Adding to" : "Saving to"} <b>${esc(target)}</b> ${esc(byId(target)?.name || "")}${item ? ` <button type="button" class="link" id="unmerge">Make it a new precedent instead</button>` : ""}</div>` : ""}
+    <div id="prop-top"></div>
     <div class="rf-sec"><h3>Images <span class="muted small">Untick any to leave out. ★ is the main image.</span></h3>
       ${pics.length ? `<div class="pics">${pics.map((p, n) => `<div class="pic ${p.keep ? "" : "off"}">
         <div class="pic-img"><img alt="" referrerpolicy="no-referrer" src="${esc(src(p))}"><label class="keep"><input type="checkbox" data-keep="${n}" ${p.keep ? "checked" : ""}></label><button type="button" class="star ${p.primary ? "on" : ""}" data-star="${n}" title="Main image">★</button></div>
@@ -435,7 +528,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       await loadInbox(); toast("Discarded"); location.hash = "#/inbox";
     });
     el.querySelector("#cancel")?.addEventListener("click", closeModal);
-    el.querySelector("#unmerge")?.addEventListener("click", () => { rec = item.draft.record; target = null; setPics(); draw(); });
+    el.querySelector("#unmerge")?.addEventListener("click", () => { rec = item.draft.record; target = null; topHTML = ""; topAns = null; setPics(); draw(); });
+    if (topHTML) { el.querySelector("#prop-top").innerHTML = topHTML; wireProposals(el.querySelector("#prop-top"), topAns); }
     el.querySelector("#fill").onclick = fillGaps;
   };
   const keepScroll = fn => { const y = window.scrollY, m = document.getElementById("modal-card"), my = m?.scrollTop; fn(); window.scrollTo(0, y); if (m) m.scrollTop = my; };
@@ -469,37 +563,72 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       let raw;
       try { raw = JSON.parse(await readWebText(res)); } catch { throw new Error("Groundwork's answer was cut short. Try again."); }
       const ans = tidyCheck(raw, record);
-      const label = k => c.fields.find(f => f.key === k)?.label || (k === "status" ? "Status" : k === "scale" ? "Scale" : k);
-      const facetLabel = k => c.facets.find(f => f.key === k)?.label || k;
-      const addF = Object.entries(ans.add_facets || {});
-      const srcLink = s => /^https?:\/\//.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">source</a>` : esc(s);
-      const urlIn = s => (String(s).match(/https?:\/\/\S+/) || [])[0];
       msg.textContent = searchNote + (ans.summary || "Checked.");
-      const any = ans.changes.length || addF.length || ans.add_tags.length || ans.add_sources.length;
-      out.innerHTML = any ? `<div class="fill-box">
-        ${ans.changes.length ? `<table class="chg"><thead><tr><th></th><th>Field</th><th>Now</th><th>Suggested</th><th>Why</th></tr></thead><tbody>
-          ${ans.changes.map((ch, n) => `<tr><td><input type="checkbox" data-chg="${n}" ${ch.current ? "" : "checked"}></td><td><b>${esc(label(ch.field))}</b></td>
-            <td class="${ch.current ? "" : "muted"}">${esc((ch.current || "empty").slice(0, 160))}</td><td>${esc(ch.value.slice(0, 400))}</td>
-            <td class="small">${esc(ch.reason)} ${urlIn(ch.source) ? srcLink(urlIn(ch.source)) : `<span class="muted">(${esc(ch.source)})</span>`}</td></tr>`).join("")}
-        </tbody></table>` : ""}
-        ${addF.map(([k, vs]) => `<div><b>Add to ${esc(facetLabel(k))}:</b> ${vs.map(v => `<label class="inl"><input type="checkbox" data-fac="${esc(k)}" value="${esc(v)}" checked> ${esc(v)}</label>`).join(" ")}</div>`).join("")}
-        ${ans.add_tags.length ? `<div><b>Add tags:</b> ${ans.add_tags.map(t => `<label class="inl"><input type="checkbox" data-tag value="${esc(t)}" checked> ${esc(t)}</label>`).join(" ")}</div>` : ""}
-        ${ans.add_sources.length ? `<div><b>Add sources:</b> ${ans.add_sources.map(s => `<label class="inl"><input type="checkbox" data-src value="${esc(s)}" checked> ${esc(s)}</label>`).join(" ")}</div>` : ""}
-        ${ans.caveats ? `<div class="muted">${esc(ans.caveats)}</div>` : ""}
-        <p class="small muted">Ticked: new information for empty fields. Unticked: changes to things already filled in. Tick what you want to keep.</p>
-        <p><button type="button" class="btn primary" id="use">Use selected</button> <button type="button" class="btn" id="nouse">Leave it</button></p></div>`
-        : `<p class="muted small">Everything checks out: nothing to add or change.</p>`;
-      el.querySelector("#use")?.addEventListener("click", () => {
-        const cur = read();
-        out.querySelectorAll("[data-chg]:checked").forEach(x => { const ch = ans.changes[+x.dataset.chg]; cur[ch.field] = ch.value; });
-        out.querySelectorAll("[data-fac]:checked").forEach(x => { cur.facets[x.dataset.fac] = [...new Set([...(cur.facets[x.dataset.fac] || []), x.value])]; });
-        out.querySelectorAll("[data-tag]:checked").forEach(x => { if (!cur.tags.includes(x.value)) cur.tags.push(x.value); });
-        out.querySelectorAll("[data-src]:checked").forEach(x => { if (!cur.sources.includes(x.value)) cur.sources.push(x.value); });
-        rec = { ...rec, ...cur }; keepScroll(draw); toast("Changes added. Check them over before saving.");
-      });
-      el.querySelector("#nouse")?.addEventListener("click", () => { out.innerHTML = ""; });
+      const box = el.querySelector("#fill-out");
+      box.innerHTML = proposalsHTML(ans, false);
+      wireProposals(box, ans);
     } catch (e) { msg.textContent = `Couldn't check: ${e.message}`; }
     btn.disabled = false;
+  }
+
+  // Proposed changes (Check and fill, or adding to an existing precedent): a table of changes with ticks.
+  let topAns = null, topHTML = "";
+  function proposalsHTML(ans, tickAll) {
+    const label = k => c.fields.find(f => f.key === k)?.label || (k === "status" ? "Status" : k === "scale" ? "Scale" : k);
+    const facetLabel = k => c.facets.find(f => f.key === k)?.label || k;
+    const addF = Object.entries(ans.add_facets || {});
+    const urlIn = s => (String(s).match(/https?:\/\/\S+/) || [])[0];
+    const any = ans.changes.length || addF.length || ans.add_tags.length || ans.add_sources.length;
+    if (!any) return `<p class="muted small">${ans.caveats ? esc(ans.caveats) : "Nothing to add or change."}</p>`;
+    return `<div class="fill-box">
+      ${ans.changes.length ? `<table class="chg"><thead><tr><th></th><th>Field</th><th>Now</th><th>Suggested</th><th>Why</th></tr></thead><tbody>
+        ${ans.changes.map((ch, n) => `<tr><td><input type="checkbox" data-chg="${n}" ${tickAll || !ch.current ? "checked" : ""}></td><td><b>${esc(label(ch.field))}</b></td>
+          <td class="${ch.current ? "" : "muted"}">${esc((ch.current || "empty").slice(0, 160))}${ch.current.length > 160 ? "..." : ""}</td><td>${esc(ch.value.slice(0, 600))}${ch.value.length > 600 ? "..." : ""}</td>
+          <td class="small">${esc(ch.reason)} ${urlIn(ch.source) ? `<a href="${esc(urlIn(ch.source))}" target="_blank" rel="noopener">source</a>` : `<span class="muted">(${esc(ch.source)})</span>`}</td></tr>`).join("")}
+      </tbody></table>` : ""}
+      ${addF.map(([k, vs]) => `<div><b>Add to ${esc(facetLabel(k))}:</b> ${vs.map(v => `<label class="inl"><input type="checkbox" data-fac="${esc(k)}" value="${esc(v)}" checked> ${esc(v)}</label>`).join(" ")}</div>`).join("")}
+      ${ans.add_tags.length ? `<div><b>Add tags:</b> ${ans.add_tags.map(t => `<label class="inl"><input type="checkbox" data-tag value="${esc(t)}" checked> ${esc(t)}</label>`).join(" ")}</div>` : ""}
+      ${ans.add_sources.length ? `<div><b>Add sources:</b> ${ans.add_sources.map(s => `<label class="inl"><input type="checkbox" data-src value="${esc(s)}" checked> ${esc(s)}</label>`).join(" ")}</div>` : ""}
+      ${ans.caveats ? `<div class="muted">${esc(ans.caveats)}</div>` : ""}
+      <p class="small muted">${tickAll ? "Everything is ticked. Untick anything you don't want to bring in." : "Ticked: new information for empty fields. Unticked: changes to things already filled in. Tick what you want to keep."}</p>
+      <p><button type="button" class="btn primary" data-use>Use selected</button> <button type="button" class="btn" data-nouse>Leave it</button></p></div>`;
+  }
+  function wireProposals(box, ans) {
+    box.querySelector("[data-use]")?.addEventListener("click", () => {
+      const cur = read();
+      box.querySelectorAll("[data-chg]:checked").forEach(x => { const ch = ans.changes[+x.dataset.chg]; cur[ch.field] = ch.value; });
+      box.querySelectorAll("[data-fac]:checked").forEach(x => { cur.facets[x.dataset.fac] = [...new Set([...(cur.facets[x.dataset.fac] || []), x.value])]; });
+      box.querySelectorAll("[data-tag]:checked").forEach(x => { if (!cur.tags.includes(x.value)) cur.tags.push(x.value); });
+      box.querySelectorAll("[data-src]:checked").forEach(x => { if (!cur.sources.includes(x.value)) cur.sources.push(x.value); });
+      if (box.id === "prop-top") topHTML = "";
+      rec = { ...rec, ...cur }; keepScroll(draw); toast("Changes added. Check them over before saving.");
+    });
+    box.querySelector("[data-nouse]")?.addEventListener("click", () => { box.innerHTML = ""; if (box.id === "prop-top") topHTML = ""; });
+  }
+
+  // Add this inbox item to a precedent already in the library: start from the existing record (its images kept,
+  // the new ones offered), and have Groundwork propose what the new material adds.
+  async function mergeWith(id) {
+    const existing = byId(id);
+    if (!existing) return;
+    rec = structuredClone(existing); target = id; setPics();
+    pics.filter(p => !p.existing).forEach(p => { p.primary = false; });
+    topHTML = `<div class="drafting small-pad"><div class="spinner"></div><p><b>Reading ${esc(id)} and the new material</b><br><span class="muted">Working out what to add...</span></p></div>`;
+    draw();
+    el.querySelector("#prop-top").scrollIntoView({ block: "nearest" });
+    try {
+      const res = await api("/api/merge", { method: "POST", raw: true, body: { target: existing, incoming: item?.draft?.record || {}, note: item?.note || "", text: item?.text || "", url: item?.url || "" } });
+      let raw;
+      try { raw = JSON.parse(await readWebText(res)); } catch { throw new Error("Groundwork's answer was cut short. Try again."); }
+      if (target !== id) return;   // changed their mind while it was working
+      const ans = tidyCheck(raw, existing);
+      if (item?.url && !(existing.sources || []).some(x => x.includes(item.url)) && !ans.add_sources.some(x => x.includes(item.url))) ans.add_sources.push(`${item.title || item.site || "Web page"}, ${item.url}`);
+      topAns = ans;
+      topHTML = `<div class="prop-h"><b>What the new material adds to ${esc(id)}</b> <span class="muted">${esc(ans.summary)}</span></div>` + proposalsHTML(ans, true);
+    } catch (e) {
+      topHTML = `<p class="bad small">Couldn't work out the changes: ${esc(e.message)}. You can still edit the fields by hand, then approve.</p>`;
+    }
+    keepScroll(draw);
   }
 
   el.onsubmit = async e => {
@@ -537,7 +666,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   };
 
   draw();
-  return { el, read, fill: fillGaps, reset(newRec, newTarget) { rec = newRec; target = newTarget; setPics(); draw(); } };
+  return { el, read, fill: fillGaps, mergeWith };
 }
 
 // Check and fill's answer, tidied: no changes that change nothing, one change per field, only listed categories.
@@ -606,41 +735,15 @@ function renderAdd() {
       await loadInbox(); toast("Sent to the inbox"); e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
   };
-  let files = [], webImgs = [];
-  const list = document.getElementById("drop-list"), input = document.getElementById("files"), drop = document.getElementById("drop");
-  const show = () => { list.innerHTML = files.map(f => `<span>${esc(f.name || "pasted image")}</span>`).join("") + webImgs.map(u => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join(""); };
-  const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 8 - webImgs.length); show(); };
-  input.onchange = () => add(input.files);
-  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
-  drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = e => {
-    e.preventDefault(); drop.classList.remove("over");
-    const dt = e.dataTransfer;
-    if ([...dt.files].some(f => f.type.startsWith("image/"))) return add(dt.files);
-    // An image dragged from another web page arrives as its address.
-    const html = dt.getData("text/html"), m = html && html.match(/<img[^>]+src=["']([^"']+)/i);
-    const u = (m && m[1]) || dt.getData("text/uri-list").split("\n").find(l => /^https?:/.test(l.trim())) || "";
-    if (/^https?:/.test(u.trim())) { webImgs = [...new Set([...webImgs, u.trim()])].slice(0, 8 - files.length); show(); }
-    else toast("That didn't come through as an image. Try saving it and dropping the file.");
-  };
-  const onPaste = e => { if (!document.getElementById("by-photos")) return document.removeEventListener("paste", onPaste); const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); add(f); } };
-  document.addEventListener("paste", onPaste);
+  const pick = photoPicker(document.getElementById("drop"), document.getElementById("files"), document.getElementById("drop-list"));
   document.getElementById("by-photos").onsubmit = async e => {
     e.preventDefault();
-    if (!files.length && !webImgs.length) return toast("Add some photos or images first");
+    if (!pick.count()) return toast("Add some photos or images first");
     const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Sending...";
     try {
-      // Netlify refuses requests over about 6 MB, so photos go up in batches of under 3.5 MB.
-      const batches = [[]]; let size = 0;
-      for (const f of files) {
-        const up = { data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString() };
-        if (size + up.data.length > 3_500_000 && batches.at(-1).length) { batches.push([]); size = 0; }
-        batches.at(-1).push(up); size += up.data.length;
-      }
       const note = new FormData(e.target).get("note") || "";
-      const { item } = await api("/api/inbox", { method: "POST", body: { note, from: "upload", uploads: batches[0], images: webImgs, title: note } });
-      for (const b of batches.slice(1)) await api("/api/inbox", { method: "PATCH", body: { id: item.id, uploads: b } });
-      await loadInbox(); toast("Photos sent to the inbox"); files = []; webImgs = []; list.innerHTML = ""; e.target.reset();
+      await sendToInbox({ note, title: note }, pick.files(), pick.webImgs());
+      await loadInbox(); toast("Photos sent to the inbox"); pick.clear(); e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";
   };

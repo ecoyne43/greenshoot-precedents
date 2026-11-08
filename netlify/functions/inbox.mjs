@@ -3,6 +3,7 @@
 //   GET                 -> { items } newest first
 //   POST  { url, title, site, author, date, text, images, note, from, uploads }   add an item
 //         uploads: [{ data: base64, type: "image/jpeg" | "image/png", name }]  up to 8 (screenshots, site photos)
+//         target: "PR-0004" when sent from a precedent's "Add to this precedent" button
 //   PATCH { id, status }      status: "new" | "approved" | "discarded"
 //   PATCH { id, uploads }     add more photos to an item (the Add page sends big batches in parts)
 //   DELETE ?id=               remove an item and its uploads
@@ -47,7 +48,7 @@ export default handle(async (req) => {
   if (req.method === "POST") {
     const b = await req.json().catch(() => ({}));
     const ups = (Array.isArray(b.uploads) ? b.uploads : b.upload ? [b.upload] : []).slice(0, 8);
-    if (!b.text && !b.url && !(b.images || []).length && !ups.length) return json({ error: "Nothing to send" }, 400);
+    if (!b.text && !b.url && !b.note && !(b.images || []).length && !ups.length) return json({ error: "Nothing to send" }, 400);
     const created = new Date().toISOString();
     const id = created.replace(/\D/g, "").slice(0, 14) + "_" + randomBytes(3).toString("hex");
     const item = {
@@ -56,6 +57,7 @@ export default handle(async (req) => {
       text: s(b.text, 20000), note: s(b.note, 2000),
       images: (Array.isArray(b.images) ? b.images : []).filter(u => /^https?:/.test(u)).slice(0, 10).map(x => s(x, 2000)),
       from: ["extension", "mac", "upload"].includes(b.from) ? b.from : "web", uploads: [],
+      ...(/^PR-\d{4}$/.test(b.target || "") ? { target: b.target } : {}),   // sent with "Add to this precedent"
     };
     const err = await addUploads(files, item, ups);
     if (err) return err;

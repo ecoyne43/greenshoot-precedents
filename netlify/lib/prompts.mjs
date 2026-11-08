@@ -38,7 +38,11 @@ ${facetText}
 - images: for each image you were shown, in order, give image_type (one of ${IMAGE_TYPES.join(", ")}), a short
   factual caption, keep (false for logos, icons, people's headshots, adverts or unrelated images) and credit
   (photographer or source if the material gives it, otherwise "").
-- confidence: high, medium or low; notes: anything the reviewer should check (one or two short sentences, or "").`;
+- confidence: high, medium or low; notes: anything the reviewer should check (one or two short sentences, or "").
+- same_as: the material ends with LIBRARY, the precedents already in the library (id | name | place | designers).
+  List any that are the SAME project as this material, or that this material shows part of (one artwork, space or
+  stage within it), each with a short reason. Same place and same project only: a similar project elsewhere is not a
+  match. Usually this is empty.`;
 
 const str = { type: "string" };
 const arr = items => ({ type: "array", items });
@@ -53,6 +57,7 @@ export const DRAFT_SCHEMA = obj({
   sources: arr(str),
   images: arr(obj({ image_type: { type: "string", enum: IMAGE_TYPES }, caption: str, keep: { type: "boolean" }, credit: str })),
   confidence: { type: "string", enum: ["high", "medium", "low"] },
+  same_as: arr(obj({ id: str, reason: str })),
   notes: str,
 });
 
@@ -113,3 +118,24 @@ export const CHECK_SCHEMA = obj({
   add_sources: arr(str),
   caveats: str,
 });
+
+// Adding new material to a precedent that's already in the library.
+export const MERGE_RULES = `${HOUSE}
+
+A colleague has sent new material (a web page, photos, highlighted text, a note) about a precedent that is ALREADY in
+the library. You get the EXISTING RECORD and the NEW MATERIAL (a draft record made from what they sent, plus their note
+and highlighted text). Propose changes to the existing record that bring in what the new material adds.
+- Keep everything already in the existing record unless the new material clearly shows it is wrong (say why).
+- Fill empty fields from the new material.
+- description: if the new material adds context (history, design moves, people, dates, how it is used), propose the
+  whole updated description: the existing text with the new context added in the right place or as a new paragraph.
+  Never drop existing content.
+- summary: change only if the new material changes the essentials; 60 to 90 words.
+- why_it_matters: extend only if the new material adds a genuinely new lesson for Greenshoot.
+- add_facets and add_tags: only what the new material supports and the record lacks. add_sources: the new page as
+  "Title, url", plus any other source the new material relies on.
+- source for each change: the page url, or "new material", or "sender's note".
+- If the new material looks like a DIFFERENT project, propose no changes and say so in caveats.
+- summary (of your answer): one sentence on what the new material adds. Keep reasons to one sentence.
+Category lists:
+${facetText}`;

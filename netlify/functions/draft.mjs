@@ -4,7 +4,7 @@
 import { requireAuth, json, handle, claude, safeUrl, BROWSER_HEADERS } from "../lib/server.mjs";
 import { store } from "../lib/blobs.mjs";
 import { pageMeta } from "../lib/pagemeta.mjs";
-import { readLibrary, cleanRecord, findDuplicates } from "../lib/library.mjs";
+import { readLibrary, cleanRecord, findDuplicates, shortLine } from "../lib/library.mjs";
 import { DRAFT_RULES, DRAFT_SCHEMA } from "../lib/prompts.mjs";
 import { fetchImage } from "../lib/fetchimage.mjs";
 
@@ -60,15 +60,16 @@ export default handle(async (req) => {
     `There are ${seen.length} image(s), in order.`,
   ].filter(Boolean).join("\n\n");
 
+  const { records } = await readLibrary();
+  const library = records.length ? `\n\nLIBRARY (already in it):\n${records.map(shortLine).join("\n").slice(0, 60000)}` : "\n\nLIBRARY: (empty)";
   const content = [
     ...seen.map(i => ({ type: "image", source: { type: "base64", media_type: i.type, data: i.data } })),
-    { type: "text", text: text + "\n\nDraft the precedent record." },
+    { type: "text", text: text + library + "\n\nDraft the precedent record." },
   ];
   const out = await claude({ system: DRAFT_RULES, content, schema: DRAFT_SCHEMA, maxTokens: 6000 });
 
   const record = cleanRecord(out);
   if (item.url && !record.sources.some(x => x.includes(item.url))) record.sources.unshift(`${meta?.title || item.title || item.url}, ${item.url}`);
-  const { records } = await readLibrary();
   item.draft = {
     record,
     images: seen.map((c, n) => ({
@@ -77,7 +78,7 @@ export default handle(async (req) => {
       credit: out.images?.[n]?.credit || (c.key ? item.by : meta?.site || item.site || ""),
       keep: out.images?.[n]?.keep !== false, source_url: c.url || item.url || "",
     })),
-    duplicates: findDuplicates(record, records),
+    duplicates: item.target ? [] : findDuplicates(record, records, (out.same_as || []).filter(m => m.id !== item.target)),
     confidence: out.confidence || "medium", notes: out.notes || "",
     read_page: !!meta, drafted: new Date().toISOString(),
   };

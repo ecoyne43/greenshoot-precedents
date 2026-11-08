@@ -17,7 +17,7 @@ Object.assign(process.env, {
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", check: "check", upload: "upload", img: "img", "proxy-image": "proxy-image" };
+  research: "research", check: "check", upload: "upload", merge: "merge", img: "img", "proxy-image": "proxy-image" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -45,7 +45,14 @@ function fakeClaude(body) {
       tags: ["fish trap", "fire pit", "coastal"], sources: [],
       images: Array.from({ length: nImages }, (_, n) => ({ image_type: n === 1 ? "Aerial" : n === 2 ? "Detail" : "Photo", caption: `View ${n + 1} of the pavilion`, keep: n !== 3, credit: "Example Studio" })),
       confidence: "medium", notes: "The page does not say who the Traditional Owners are or how they were involved.",
+      same_as: text.includes("riverbend test") && text.includes("PR-0001 | Riverbend") ? [{ id: "PR-0001", reason: "Same pavilion, same reserve" }] : [],
     };
+  } else if (sys.includes("ALREADY in")) {
+    const desc = (text.match(/^description \([^)]*\): (.*)$/m) || [])[1] || "";
+    out = { summary: "Adds site photos and the story of how the panels were made.", caveats: "",
+      changes: [{ field: "description", value: (desc === "(empty)" ? "" : desc + "\n\n") + "Added context: the panels were made with community members in 2025.", reason: "The new page describes how they were made.", source: "new material" },
+        { field: "awards", value: "Sample Award 2026", reason: "Listed on the new page.", source: "new material" }],
+      add_facets: { dwc_themes: ["Relationships + Community Involvement"] }, add_tags: ["community making"], add_sources: [] };
   } else if (sys.includes("Check a precedent")) {
     const notes = text.split("RESEARCH NOTES")[1] || "";
     const empty = k => new RegExp(`^${k} \\([^)]*\\): \\(empty\\)`, "m").test(text);
