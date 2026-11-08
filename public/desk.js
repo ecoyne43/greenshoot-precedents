@@ -21,7 +21,15 @@ async function api(path, body) {
     headers: { "x-app-password": auth.pw, "x-user-name": encodeURIComponent(auth.name), ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({}))).error || `error ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    // The app's own answers are JSON ("Wrong password"). Anything else came from before the app, usually Netlify's
+    // visitor protection (a Netlify login), which the browser gets past but this can't.
+    const body = await res.json().catch(() => null);
+    const msg = body?.error || (res.status === 401 || res.status === 403
+      ? "Netlify is blocking this before it reaches the library (visitor protection is on). In Netlify: Project configuration > General > Visitor access: set production to no protection."
+      : `The site answered with error ${res.status}`);
+    throw Object.assign(new Error(msg), { status: res.status, ours: !!body?.error });
+  }
   return res.json();
 }
 
@@ -58,7 +66,7 @@ async function refresh() {
     ls.set("gp_desk_cache", JSON.stringify(lib));
     if (view === "search") render(true);
   } catch (e) {
-    if (e.status === 401) return showSettings("The team password has changed. Enter the new one.");
+    if (e.status === 401) return showSettings(e.ours ? "The team password has changed. Enter the new one." : e.message);
     if (!lib.records.length) main.innerHTML = `<div class="empty bad">Couldn't reach the library: ${esc(e.message)}</div>`;
   }
 }
@@ -74,7 +82,7 @@ function showSettings(msg = "") {
   document.getElementById("set").onsubmit = async e => {
     e.preventDefault();
     auth = { pw: document.getElementById("pw").value.trim(), name: document.getElementById("nm").value.trim() };
-    try { await api("/api/config"); } catch (err) { const m = document.getElementById("smsg"); m.className = "msg bad"; m.textContent = err.status === 401 ? "Wrong password" : err.message; return; }
+    try { await api("/api/config"); } catch (err) { const m = document.getElementById("smsg"); m.className = "msg bad"; m.textContent = err.message; return; }
     ls.set("gp_pw", auth.pw); ls.set("gp_name", auth.name);
     view = "search"; render(); refresh();
   };
