@@ -70,6 +70,28 @@ with sync_playwright() as p:
     cap.screenshot(path=f"{OUT}/ext_shot.png")
     cap.click("#send"); cap.wait_for_selector("text=Sent")
     check(len(inbox()[0].get("uploads", [])) == 1, "screenshot uploaded to the inbox")
+    # the toolbar panel: sign in once, search, open a precedent, download its images
+    ext_id = sw.url.split("/")[2]
+    pop = ctx.new_page(); pop.set_viewport_size({"width": 400, "height": 600})
+    pop.goto(f"chrome-extension://{ext_id}/popup.html")
+    pop.wait_for_selector("#pw"); pop.fill("#pw", "test"); pop.fill("#nm", "Kirsten"); pop.click("#set button")
+    pop.wait_for_selector(".res")
+    pop.fill("#q", "saltmarsh learning"); pop.wait_for_timeout(200)
+    check(pop.locator(".res").count() == 1, "panel search finds the precedent")
+    pop.click("[data-row]"); pop.wait_for_selector("[data-all]")
+    n_imgs = pop.locator(".im").count()
+    pop.screenshot(path=f"{OUT}/panel_ext.png")
+    pop.click("[data-all]")
+    pop.wait_for_timeout(2500)
+    dls = sw.evaluate("async () => (await chrome.downloads.search({})).map(d => ({ f: d.filename, s: d.state }))")
+    # (In tests Playwright takes over downloads and renames the files, so only the count can be checked here; the
+    # names are "Precedents/PR-0002 Saltmarsh Learning Centre/01 Photo - ....jpg" in a real browser.)
+    done = [d for d in dls if d["s"] == "complete"]
+    check(len(done) == n_imgs and n_imgs >= 1, f"Download all downloads all {n_imgs} images ({len(done)})")
+    pop.close()
+    pop = ctx.new_page(); pop.goto(f"chrome-extension://{ext_id}/popup.html"); pop.wait_for_selector(".res")
+    check(pop.locator("#pw").count() == 0, "panel remembers the sign-in")
+    pop.close()
     ctx.close()
 
 print("\n" + ("ALL PASSED" if not errors else f"{len(errors)} FAILED: " + "; ".join(errors)))

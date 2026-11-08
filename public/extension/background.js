@@ -65,6 +65,14 @@ export async function send(kind, tab, info = {}) {
   return openCapture(d);
 }
 
-chrome.action.onClicked.addListener(tab => send("page", tab));
+// The toolbar panel (popup.html) asks for a send of the current tab: { send: "page" | "shot" }.
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (!msg?.send) return;
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
+    if (!tab || !/^https?:/.test(tab.url || "")) return reply({ error: "This page can't be sent." });
+    send(msg.send, tab).then(() => reply({ ok: true }), e => reply({ error: String(e.message || e) }));
+  });
+  return true;   // reply comes later
+});
 chrome.contextMenus.onClicked.addListener((info, tab) => send(info.menuItemId, tab, info));
 self.gpSend = send;   // for tests

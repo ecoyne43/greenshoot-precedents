@@ -32,7 +32,10 @@ changes here can never break the live map tool.
 
 Browser extension: `public/extension/` (Chrome and Edge, Manifest V3). The Get started page zips it with the
 site's address written in (`zip.js`); the team unzips it and uses Load unpacked. Toolbar button sends the page;
-right-click sends an image, the page or a screenshot. All open `capture.html`. Test: `dev/extension_test.py`.
+right-click sends an image, the page or a screenshot. All sends open `capture.html`. The toolbar button opens
+`popup.html`: search the library (cached in extension storage, refreshed on open), Ask Groundwork, open a precedent
+and download its images (`chrome.downloads`, saved as `Precedents/<id> <name>/NN <type>.jpg`), or send the page.
+Design preview without the extension: `/dev/popup-preview.html` on the mock server. Test: `dev/extension_test.py`.
 
 Pages: `index.html` + `app.js` (library, record, inbox review, add), `capture.html` (the bookmark button's window),
 `start.html` (Get started page to send the team).

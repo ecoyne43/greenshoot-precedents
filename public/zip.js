@@ -29,7 +29,7 @@ export function makeZip(files) {   // files: [{ name, data: Uint8Array }]
 
 // The extension, with this site's address written in, ready to unzip and load.
 export async function extensionZip(origin) {
-  const names = ["manifest.json", "config.js", "background.js", "icons/16.png", "icons/48.png", "icons/128.png"];
+  const names = ["manifest.json", "config.js", "background.js", "popup.html", "popup.js", "popup.css", "icons/16.png", "icons/48.png", "icons/128.png"];
   const files = [];
   for (const n of names) {
     let data = new Uint8Array(await (await fetch(`/extension/${n}`)).arrayBuffer());

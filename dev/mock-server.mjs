@@ -120,6 +120,7 @@ http.createServer(async (req, res) => {
         pagesWithMatchingImages: [{ url: "https://example.org/tidewater", pageTitle: "Tidewater Weaving Pavilion | Example Studio" }] } }] }));
     }
     if (url.pathname === "/__claude") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(claudeLog)); }
+    if (/^\/dev\/[a-z-]+-preview\.html$/.test(url.pathname)) { res.writeHead(200, { "content-type": "text/html" }); return res.end(readFileSync(join(ROOT, url.pathname.slice(1)))); }
     if (url.pathname === "/fake-site/project.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(FAKE_PAGE); }
     if (url.pathname.startsWith("/fake-site/")) {
       const p = join(RUN, "fake-site", url.pathname.slice(11));

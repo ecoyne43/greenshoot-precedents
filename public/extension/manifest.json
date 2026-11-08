@@ -1,11 +1,34 @@
 {
   "manifest_version": 3,
-  "name": "Send to Precedents",
-  "version": "1.0.0",
-  "description": "Send web pages, images and screenshots to Greenshoot's Precedents library inbox.",
-  "action": { "default_title": "Send this page to Precedents", "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" } },
-  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
-  "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["contextMenus", "activeTab", "scripting"],
-  "host_permissions": ["__SITE__/*"]
+  "name": "Precedents",
+  "version": "1.1.0",
+  "description": "Search Greenshoot's Precedents library and download images; send pages, images and screenshots to its inbox.",
+  "action": {
+    "default_title": "Precedents: search and send",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "__SITE__/*"
+  ]
 }

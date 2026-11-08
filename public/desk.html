@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Precedents</title>
+<link href="desk.css" rel="stylesheet">
+</head>
+<body>
+<div class="shell" id="shell">
+  <header class="top" id="drag">
+    <span class="mark">G</span><b>Precedents</b><span class="count" id="count"></span>
+    <span class="grow"></span>
+    <button class="ic" id="pin" title="Pin: keep it open while you work">Pin</button>
+    <button class="ic" id="lib" title="Open the library in your browser">Library ↗</button>
+    <button class="ic" id="gear" title="Password and name">⚙</button>
+    <button class="ic x" id="close" title="Hide (Esc)">✕</button>
+  </header>
+  <main id="main"></main>
+  <footer class="foot" id="foot">
+    <span class="hint" id="hint">↑↓ move · Enter open · drag images out to use them · drop or paste images here to send</span>
+    <button class="btn" id="shot" title="Control-Option-O">Send a screenshot</button>
+  </footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="desk.js" type="module"></script>
+</body>
+</html>

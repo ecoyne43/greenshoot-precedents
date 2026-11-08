@@ -2,3 +2,5 @@ node_modules/
 .env
 dev/run/
 .DS_Store
+mac-app/build/
+mac-app/build.log

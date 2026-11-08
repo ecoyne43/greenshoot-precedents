@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Panel preview</title>
+<style>
+  body { margin: 0; background: #8a9096; font: 13px -apple-system, "Segoe UI", sans-serif; }
+  .win { margin: 24px auto; width: 1180px; height: 760px; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 20px 60px rgba(0,0,0,.35); position: relative; }
+  .tabs { height: 38px; background: #dfe3e7; display: flex; align-items: end; padding-left: 80px; }
+  .tab { background: #fff; border-radius: 8px 8px 0 0; padding: 9px 16px; width: 240px; font-size: 12px; color: #333; }
+  .dots { position: absolute; left: 14px; top: 13px; display: flex; gap: 7px; } .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; } .dots i:nth-child(2) { background: #febc2e; } .dots i:nth-child(3) { background: #28c840; }
+  .bar { height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #ddd; }
+  .url { flex: 1; background: #eef1f4; border-radius: 16px; padding: 7px 14px; color: #555; }
+  .ext { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; background: #dfe7ef; }
+  .ext img { width: 18px; height: 18px; }
+  .page { position: absolute; top: 81px; left: 0; right: 0; bottom: 0; border: 0; width: 100%; height: calc(100% - 81px); }
+  .pop { position: absolute; top: 76px; right: 10px; width: 400px; height: 600px; border: 0; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.28); background: #fff; }
+</style></head>
+<body><div class="win">
+  <div class="tabs"><div class="dots"><i></i><i></i><i></i></div><div class="tab">Project page · Sample Architecture News</div></div>
+  <div class="bar"><span>←  →  ↻</span><div class="url">sample-architecture-news.com/projects/tidewater-weaving-pavilion</div><span class="ext"><img src="/extension/icons/48.png" alt=""></span></div>
+  <iframe class="page" src="/fake-site/project.html"></iframe>
+  <iframe class="pop" id="pop"></iframe>
+</div>
+<script>
+  localStorage.setItem("gpx_auth", JSON.stringify({ pw: "test", name: "Ed" }));
+  document.getElementById("pop").src = "/extension/popup.html";
+</script>
+</body></html>
