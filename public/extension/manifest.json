@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Precedents",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Search Greenshoot's Precedents library and download images; send pages, images and screenshots to its inbox.",
   "action": {
     "default_title": "Precedents: search and send",
@@ -29,6 +29,8 @@
     "storage"
   ],
   "host_permissions": [
-    "__SITE__/*"
+    "__SITE__/*",
+    "https://*.cdninstagram.com/*",
+    "https://*.fbcdn.net/*"
   ]
 }

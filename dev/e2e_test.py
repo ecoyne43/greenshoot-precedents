@@ -194,6 +194,9 @@ with sync_playwright() as p:
     pg.fill("#at-url", BASE + "/fake-site/missing.html"); pg.click("#at-get")
     pg.wait_for_selector("#at-imgs .msg.bad")
     check("browser" in pg.inner_text("#at-imgs"), "blocked page suggests the browser button")
+    pg.fill("#at-url", "https://www.instagram.com/p/ABC123/"); pg.click("#at-get")
+    pg.wait_for_selector("#at-imgs .msg.bad:has-text('Instagram')")
+    check("collects every slide" in pg.inner_text("#at-imgs"), "Instagram link explains to use the browser button")
     pg.click("#mclose")
 
     # in the inbox: Groundwork spots a match across the library; or choose one by hand

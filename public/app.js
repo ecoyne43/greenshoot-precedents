@@ -283,6 +283,7 @@ function renderRecord(id) {
     view.querySelectorAll("[data-img]").forEach(x => x.classList.toggle("on", x === b));
   });
   view.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { st.filters = { [b.dataset.filter]: [b.dataset.v] }; st.q = ""; st.ask = null; location.hash = "#/library"; });
+  view.querySelector(".g-main")?.addEventListener("click", e => { if (e.target.tagName === "IMG") window.open(e.target.src, "_blank", "noopener"); });
   document.getElementById("similar").onclick = () => runAsk({ similar: r.id }, `Similar to ${r.name}`);
   document.getElementById("edit").onclick = () => openEditor({ record: structuredClone(r), targetId: r.id });
   document.getElementById("addto").onclick = () => openAddTo(r);
@@ -608,6 +609,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     if (topHTML) { el.querySelector("#prop-top").innerHTML = topHTML; wireProposals(el.querySelector("#prop-top"), topAns); }
     el.querySelector("#fill").onclick = fillGaps;
     wireAddLink();
+    // Flag images too small to use well (under 800 px both ways), so a better copy can be found before approving.
+    el.querySelectorAll(".pic-img img").forEach(im => { const flag = () => { if (im.naturalWidth && im.naturalWidth < 800 && im.naturalHeight < 800) im.insertAdjacentHTML("afterend", `<span class="lowres" title="${im.naturalWidth}×${im.naturalHeight} px">Low res</span>`); }; im.complete ? flag() : im.addEventListener("load", flag, { once: true }); });
   };
   // Keep what's been typed when the form redraws.
   const sync = () => { if (el.querySelector("[name=name]")) rec = { ...rec, ...read() }; };

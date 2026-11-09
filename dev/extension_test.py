@@ -24,7 +24,8 @@ with sync_playwright() as p:
     zipfile.ZipFile(z).extractall(tmp)
     ext = os.path.join(tmp, "send-to-precedents")
     man = json.load(open(os.path.join(ext, "manifest.json")))
-    check(man["host_permissions"] == [BASE + "/*"], "downloaded extension has this site's address built in")
+    check(man["host_permissions"][0] == BASE + "/*" and "__SITE__" not in json.dumps(man), "downloaded extension has this site's address built in")
+    check(os.path.exists(os.path.join(ext, "instagram.js")), "Instagram helper included in the download")
     check("__SITE__" not in open(os.path.join(ext, "config.js")).read(), "config filled in")
     b.close()
     # Test only: a real right-click grants the screenshot permission (activeTab); the test can't right-click, so
@@ -70,6 +71,30 @@ with sync_playwright() as p:
     cap.screenshot(path=f"{OUT}/ext_shot.png")
     cap.click("#send"); cap.wait_for_selector("text=Sent")
     check(len(inbox()[0].get("uploads", [])) == 1, "screenshot uploaded to the inbox")
+    # an Instagram carousel: every slide collected (stepping through), saved as files, credited to the account
+    sw.evaluate("() => self.gpIgHosts.push('localhost')")
+    ig = ctx.new_page(); ig.goto(BASE + "/fake-ig/p/ABC123/?img_index=1"); ig.bring_to_front(); ig.wait_for_selector("#car img")
+    before = len(inbox())
+    with ctx.expect_page() as newp:
+        sw.evaluate("""async () => { const [tab] = await chrome.tabs.query({ url: '*://localhost/fake-ig/*' }); await self.gpSend('page', tab); }""")
+    cap = newp.value; cap.wait_for_selector("#send", timeout=40000)
+    n_files = cap.locator('input[name="file"]:checked').count()
+    check(n_files == 5, f"all 5 carousel slides collected and ticked ({n_files})")
+    check(cap.input_value("#title") == "@sample.studio on Instagram", "post titled with the account")
+    cap_text = cap.input_value("#text")
+    check("woven pavilion" in cap_text and "Port Sample Foreshore" in cap_text, "caption and location tag picked up")
+    cap.screenshot(path=f"{OUT}/ext_instagram.png", full_page=True)
+    cap.click("#send"); cap.wait_for_selector("text=Sent", timeout=30000)
+    it = inbox()[0]
+    ups = it.get("uploads", [])
+    check(len(inbox()) == before + 1 and len(ups) == 5, f"5 images uploaded as files ({len(ups)})")
+    check(all(u.get("credit") == "@sample.studio, Instagram" for u in ups) and ups[0].get("src", "").endswith("/fake-site/g1.jpg"), "each credited to the account, with its full-size address")
+    check(it["url"] == BASE + "/fake-ig/p/ABC123/" and it["site"] == "Instagram", "post link cleaned up")
+    req = urllib.request.Request(BASE + "/api/draft", data=json.dumps({"id": it["id"]}).encode(), headers={"x-app-password": "test", "content-type": "application/json"})
+    d = json.load(urllib.request.urlopen(req))["item"]["draft"]
+    check(len(d["images"]) == 5 and all(i["credit"] == "@sample.studio, Instagram" and i["keep"] for i in d["images"]), "draft keeps all 5, credited")
+    ig.close()
+
     # the toolbar panel: sign in once, search, open a precedent, download its images
     ext_id = sw.url.split("/")[2]
     pop = ctx.new_page(); pop.set_viewport_size({"width": 400, "height": 600})

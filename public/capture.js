@@ -13,7 +13,7 @@ window.gpShot = s => { shot = s; render(); };
 
 function render() {
   const { pw, name } = getAuth();
-  const imgs = data.images || [];
+  const imgs = data.images || [], files = data.files || [];
   const pre = new Set(data.pick ? [data.pick] : imgs.slice(0, 4));
   main.innerHTML = `
     <div class="cap-h"><span class="mark">G</span><div><h1>Send to Precedents</h1><p class="muted small">${esc(data.site || "")}${data.site ? " · " : ""}${esc(data.url || "")}</p></div></div>
@@ -23,7 +23,10 @@ function render() {
       ${imgs.length ? `<div class="fl long"><span>Images <em>tick the ones worth keeping</em></span><div class="cap-imgs">
         ${imgs.map((u, n) => `<label><input type="checkbox" name="img" value="${esc(u)}" ${pre.has(u) ? "checked" : ""}><img src="${esc(u)}" alt="" referrerpolicy="no-referrer"></label>`).join("")}
       </div></div>` : ""}
-      <label class="fl long"><span>Highlighted text <em>optional</em></span><textarea id="text" rows="5" placeholder="Nothing highlighted. That's fine: Groundwork reads the page.">${esc(data.text || "")}</textarea></label>
+      ${files.length ? `<div class="fl long"><span>${data.site === "Instagram" ? `Instagram post <em>${files.length === 1 ? "1 image" : `all ${files.length} slides`}, saved now so they won't expire</em>` : "Images"}</span>
+        <div class="cap-imgs">${files.map((f, n) => `<label><input type="checkbox" name="file" value="${n}" checked><img src="${f.data}" alt=""></label>`).join("")}</div>
+        ${data.found > files.length ? `<p class="muted small">${data.found - files.length} couldn't be downloaded.</p>` : ""}</div>` : ""}
+      <label class="fl long"><span>${data.site === "Instagram" ? "Caption" : "Highlighted text"} <em>optional</em></span><textarea id="text" rows="5" placeholder="Nothing highlighted. That's fine: Groundwork reads the page.">${esc(data.text || "")}</textarea></label>
       <label class="fl long"><span>Note <em>optional</em></span><input id="note" placeholder="Why it's a good precedent, or which project it's for"></label>
       ${pw ? "" : `<label class="fl long"><span>Team password</span><input id="pw" type="password" autocomplete="current-password" required></label>`}
       ${name ? "" : `<label class="fl long"><span>Your name</span><input id="name" autocomplete="name" required></label>`}
@@ -52,7 +55,18 @@ async function send(e) {
       const blob = await (await fetch(shot)).blob();
       body.uploads = [{ data: await toBase64(await shrink(blob, 2200, 0.85)), type: "image/jpeg", name: "screenshot.jpg" }];
     }
-    await api("/api/inbox", { method: "POST", body });
+    // Images saved in the browser (Instagram): sent as files, in batches under Netlify's request limit.
+    const ups = [...(body.uploads || [])], batches = [[]];
+    for (const i of document.querySelectorAll('input[name="file"]:checked')) {
+      const f = data.files[+i.value];
+      ups.push({ data: f.data.split(",")[1], type: "image/jpeg", name: `${data.site || "image"} ${+i.value + 1}.jpg`, credit: f.credit || "", src: f.src || "" });
+    }
+    let size = 0;
+    for (const u of ups) { if (size + u.data.length > 3_500_000 && batches.at(-1).length) { batches.push([]); size = 0; } batches.at(-1).push(u); size += u.data.length; }
+    body.uploads = batches[0];
+    if (batches.length > 1) msg.textContent = `Sending (1 of ${batches.length})...`;
+    const { item } = await api("/api/inbox", { method: "POST", body });
+    for (const [n, b] of batches.slice(1).entries()) { msg.textContent = `Sending (${n + 2} of ${batches.length})...`; await api("/api/inbox", { method: "PATCH", body: { id: item.id, uploads: b } }); }
     main.innerHTML = `<div class="empty"><h1>Sent</h1><p>It's in the Precedents inbox. Groundwork will draft the record for whoever reviews it.</p></div>`;
     setTimeout(() => window.close(), 1800);
   } catch (err) {
@@ -68,5 +82,5 @@ function start() {
   else render();
 }
 if (hadHash) start();
-else main.innerHTML = `<div class="empty"><p class="muted">Getting the page details...</p></div>`;
-setTimeout(() => { if (!data.url && !data.text && !data.shot) start(); }, 6000);
+else main.innerHTML = `<div class="empty"><p class="muted">Getting the page details... <span class="small">(an Instagram carousel takes a few seconds while each slide is collected)</span></p></div>`;
+setTimeout(() => { if (!data.url && !data.text && !data.shot) start(); }, 40000);

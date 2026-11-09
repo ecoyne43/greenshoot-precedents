@@ -115,7 +115,8 @@ textarea { resize: vertical; }
 .gallery { display: grid; grid-template-columns: 1fr 132px; gap: 10px; margin-bottom: 26px; }
 .gallery:not(:has(.g-thumbs)) { grid-template-columns: 1fr; }
 .g-main { margin: 0; background: #e4e3dc; border-radius: 8px; overflow: hidden; }
-.g-main img { width: 100%; max-height: 560px; object-fit: cover; display: block; }
+/* The whole image, never cropped: portrait (Instagram 4:5) and landscape both fit the stage. Click for full size. */
+.g-main img { width: 100%; height: min(68vh, 600px); object-fit: contain; display: block; background: #e4e3dc; cursor: zoom-in; }
 .g-main figcaption { padding: 8px 12px; font-size: .82rem; background: var(--card); }
 .g-thumbs { display: flex; flex-direction: column; gap: 8px; max-height: 600px; overflow-y: auto; }
 .g-thumbs button { border: 2px solid transparent; padding: 0; border-radius: 6px; overflow: hidden; cursor: pointer; background: none; position: relative; }
@@ -169,7 +170,7 @@ h4.sec { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 28px;
 .pics { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .pic { display: flex; flex-direction: column; gap: 5px; } .pic.off { opacity: .45; }
 .pic-img { position: relative; aspect-ratio: 4/3; border-radius: 6px; overflow: hidden; background: #e4e3dc; }
-.pic-img img { width: 100%; height: 100%; object-fit: cover; }
+.pic-img img { width: 100%; height: 100%; object-fit: contain; background: #e4e3dc; }
 .keep { position: absolute; left: 6px; top: 6px; background: #fff; border-radius: 4px; padding: 2px; line-height: 0; } .keep input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .star { position: absolute; right: 6px; top: 6px; background: rgba(255,255,255,.9); border: 0; border-radius: 4px; width: 24px; height: 24px; color: #bbb; cursor: pointer; font-size: 15px; line-height: 1; }
 .star.on { color: var(--spark); }
@@ -214,7 +215,7 @@ body.capture { background: var(--paper); }
 .cap-imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .cap-imgs label { position: relative; border: 2px solid transparent; border-radius: 6px; overflow: hidden; cursor: pointer; background: #e4e3dc; aspect-ratio: 4/3; }
 .cap-imgs input { position: absolute; left: 6px; top: 6px; width: 16px; height: 16px; z-index: 1; accent-color: var(--accent); }
-.cap-imgs img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .55; }
+.cap-imgs img { width: 100%; height: 100%; object-fit: contain; display: block; opacity: .55; }
 .cap-imgs label:has(input:checked) { border-color: var(--accent); } .cap-imgs label:has(input:checked) img { opacity: 1; }
 
 @media (max-width: 900px) {
@@ -260,7 +261,7 @@ body.capture { background: var(--paper); }
 .ip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; max-height: 420px; overflow-y: auto; }
 .ip-cell { position: relative; aspect-ratio: 4 / 3; border-radius: 4px; overflow: hidden; cursor: pointer; background: #e8e8e2; outline: 3px solid transparent; outline-offset: -3px; }
 .ip-cell[hidden] { display: none; }
-.ip-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ip-cell img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .ip-cell input { position: absolute; top: 6px; left: 6px; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 .ip-cell.on { outline-color: var(--accent); }
 .ip-cell:not(.on) img { opacity: .82; } .ip-cell:hover img { opacity: 1; }
@@ -269,3 +270,4 @@ body.capture { background: var(--paper); }
 .addlink #al[hidden] { display: none; }
 @media (max-width: 560px) { .urlrow { flex-direction: column; align-items: stretch; } }
 .al-actions { display: flex; justify-content: space-between; align-items: center; }
+.lowres { position: absolute; left: 6px; bottom: 6px; font: .64rem var(--mono); background: #8a2b2b; color: #fff; padding: 1px 5px; border-radius: 2px; }

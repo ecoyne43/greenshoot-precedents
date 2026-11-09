@@ -2,7 +2,8 @@
 // Item details in the Blobs store "inbox"; uploaded screenshots and site photos in "inbox-files".
 //   GET                 -> { items } newest first
 //   POST  { url, title, site, author, date, text, images, note, from, uploads }   add an item
-//         uploads: [{ data: base64, type: "image/jpeg" | "image/png", name }]  up to 8 (screenshots, site photos)
+//         uploads: [{ data: base64, type: "image/jpeg" | "image/png", name, credit?, src? }]  up to 20 (screenshots,
+//         site photos, Instagram slides saved by the extension: those carry their credit and original address)
 //         target: "PR-0004" when sent from a precedent's "Add to this precedent" button
 //   PATCH { id, status }      status: "new" | "approved" | "discarded"
 //   PATCH { id, uploads }     add more photos to an item (the Add page sends big batches in parts)
@@ -13,13 +14,13 @@ import { store } from "../lib/blobs.mjs";
 
 const s = (v, n) => String(v ?? "").slice(0, n);
 const TYPES = { "image/jpeg": "jpg", "image/png": "png" };
-const MAX_TOTAL = 4_800_000;
+const MAX_TOTAL = 4_800_000, MAX_UPLOADS = 20;
 
-// Store uploaded images on an item (up to 8 in all). Returns an error response, or null.
+// Store uploaded images on an item (up to 20 in all). Returns an error response, or null.
 async function addUploads(files, item, ups) {
   let total = 0;
   for (const up of ups) {
-    if ((item.uploads || []).length >= 8) break;
+    if ((item.uploads || []).length >= MAX_UPLOADS) break;
     const ext = TYPES[up?.type];
     if (!ext) return json({ error: "Only JPEG and PNG images can be sent" }, 415);
     const buf = Buffer.from(String(up.data || ""), "base64");
@@ -28,7 +29,8 @@ async function addUploads(files, item, ups) {
     if (total > MAX_TOTAL) return json({ error: "Too much at once (over 4.8 MB). Send fewer photos." }, 413);
     const key = `${item.id}_${item.uploads.length}.${ext}`;
     await files.set(key, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
-    item.uploads.push({ key, type: up.type, name: s(up.name, 200), taken: s(up.taken, 40) });
+    item.uploads.push({ key, type: up.type, name: s(up.name, 200), taken: s(up.taken, 40),
+      ...(up.credit ? { credit: s(up.credit, 200) } : {}), ...(/^https?:/.test(up.src || "") ? { src: s(up.src, 2000) } : {}) });
   }
   return null;
 }
@@ -47,7 +49,7 @@ export default handle(async (req) => {
 
   if (req.method === "POST") {
     const b = await req.json().catch(() => ({}));
-    const ups = (Array.isArray(b.uploads) ? b.uploads : b.upload ? [b.upload] : []).slice(0, 8);
+    const ups = (Array.isArray(b.uploads) ? b.uploads : b.upload ? [b.upload] : []).slice(0, MAX_UPLOADS);
     if (!b.text && !b.url && !b.note && !(b.images || []).length && !ups.length) return json({ error: "Nothing to send" }, 400);
     const created = new Date().toISOString();
     const id = created.replace(/\D/g, "").slice(0, 14) + "_" + randomBytes(3).toString("hex");

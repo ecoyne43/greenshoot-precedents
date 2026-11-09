@@ -9,6 +9,7 @@ export default handle(async (req) => {
   if (denied) return denied;
   const u = safeUrl(new URL(req.url).searchParams.get("url"));
   if (!u) return json({ error: "That isn't a web address" }, 400);
+  if (/(^|\.)instagram\.com$/.test(u.hostname)) return json({ error: "Instagram only shows posts to people who are logged in. Open the post and click the Precedents button in your browser: it collects every slide", instagram: true }, 422);
   let res;
   try {
     res = await fetch(u.href, { headers: { ...BROWSER_HEADERS, accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(12000) });

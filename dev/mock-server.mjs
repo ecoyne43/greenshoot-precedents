@@ -104,6 +104,24 @@ const GALLERY_PAGE = `<!doctype html><html><head><title>Tidewater Weaving Pavili
 <script>window.gallery = {"slides":[{"src":"\\/fake-site\\/g5.jpg"}]};</script>
 </body></html>`;
 
+// A stand-in Instagram post (the extension test treats localhost as Instagram): a carousel that only keeps the
+// slides either side of the current one, a French "Suivant" arrow, the account, location and caption, and other
+// posts' images below that must not be collected.
+const IG_PAGE = `<!doctype html><html><head><title>Instagram</title></head><body><main>
+<article><header><img alt="sample.studio's profile picture" src="/fake-site/logo.jpg" width="32" height="32">
+<a href="/sample.studio/">sample.studio</a> <a href="/explore/locations/123/port-sample/">Port Sample Foreshore</a></header>
+<div><div><ul id="car" style="list-style:none;padding:0;display:flex"></ul></div><button aria-label="Suivant" id="nx">&rsaquo;</button></div>
+<h1>Our woven pavilion at Port Sample, made with local weavers and the Traditional Owners. #architecture</h1></article>
+<h2>More posts from sample.studio</h2><div><img src="/fake-site/big1.jpg" width="300" height="300"><img src="/fake-site/big2.jpg" width="300" height="300"></div>
+</main><script>
+const S = [1, 2, 3, 4, 5].map(k => "/fake-site/g" + k), car = document.getElementById("car"), nx = document.getElementById("nx"); let i = 0;
+function draw() {
+  car.innerHTML = S.map((u, n) => Math.abs(n - i) <= 1 ? '<li><img alt="Photo by Sample Studio" width="600" height="400" src="' + u + '-400.jpg" srcset="' + u + '-400.jpg 400w, ' + u + '.jpg 1600w"></li>' : "<li></li>").join("");
+  nx.hidden = i >= S.length - 1;
+}
+nx.onclick = () => { i++; setTimeout(draw, 150); }; draw();
+</script></body></html>`;
+
 // ---------- server ----------
 // ---------- fake Cloudflare: the real Worker (cloudflare/images-worker.js) over a folder standing in for R2 ----------
 const R2DIR = join(RUN, "r2");
@@ -163,6 +181,7 @@ http.createServer(async (req, res) => {
     }
     if (url.pathname === "/__claude") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(claudeLog)); }
     if (/^\/dev\/[a-z-]+-preview\.html$/.test(url.pathname)) { res.writeHead(200, { "content-type": "text/html" }); return res.end(readFileSync(join(ROOT, url.pathname.slice(1)))); }
+    if (url.pathname.startsWith("/fake-ig/p/")) { res.writeHead(200, { "content-type": "text/html" }); return res.end(IG_PAGE); }
     if (url.pathname === "/fake-site/gallery.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(GALLERY_PAGE); }
     if (url.pathname === "/fake-site/project.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(FAKE_PAGE); }
     if (url.pathname.startsWith("/fake-site/")) {

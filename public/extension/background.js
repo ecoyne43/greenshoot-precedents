@@ -2,6 +2,7 @@
 // Everything opens the site's small capture window (capture.html), where the sender ticks images, adds a note and
 // sends it to the inbox. The password and name are the ones saved when they signed in to the site.
 import { SITE } from "./config.js";
+import { isIgPost, igData, IG_HOSTS, igGrab, imageFile } from "./instagram.js";
 
 const MENU = [
   { id: "image", title: "Send this image to Precedents", contexts: ["image"] },
@@ -36,10 +37,11 @@ async function pageData(tab) {
 
 // Opens the capture window, then hands it the page details (and screenshot) once it has loaded. Nothing goes in
 // the window's address: some posts (Instagram) carry very long image links that break sign-in redirects.
+// data can be a promise (an Instagram carousel takes a few seconds to step through; the window shows it's working).
 async function openCapture(data, shot) {
   const win = await chrome.windows.create({ url: `${SITE}/capture.html`, type: "popup", width: 600, height: 840 });
   const tabId = win.tabs[0].id;
-  const payload = { ...data, from: "extension", shot: !!shot };
+  const payload = { ...(await data), from: "extension", shot: !!shot };
   for (let n = 0; n < 60; n++) {
     await new Promise(r => setTimeout(r, 250));
     try {
@@ -57,6 +59,7 @@ export async function send(kind, tab, info = {}) {
     const d = await pageData(tab);
     return openCapture({ ...d, images: [] }, shot);
   }
+  if (isIgPost(tab.url)) return openCapture(igData(tab).then(d => d || pageData(tab)));
   const d = await pageData(tab);
   if (kind === "image" && info.srcUrl) {
     d.images = [info.srcUrl, ...(d.images || []).filter(u => u !== info.srcUrl)].slice(0, 12);
@@ -76,3 +79,4 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 });
 chrome.contextMenus.onClicked.addListener((info, tab) => send(info.menuItemId, tab, info));
 self.gpSend = send;   // for tests
+self.gpIgHosts = IG_HOSTS; self.gpIg = { isIgPost, igGrab, imageFile };

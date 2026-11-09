@@ -37,6 +37,8 @@ site's address written in (`zip.js`); the team unzips it and uses Load unpacked.
 right-click sends an image, the page or a screenshot. All sends open `capture.html`. The toolbar button opens
 `popup.html`: search the library (cached in extension storage, refreshed on open), Ask Groundwork, open a precedent
 and download its images (`chrome.downloads`, saved as `Precedents/<id> <name>/NN <type>.jpg`), or send the page.
+On an Instagram post it switches to `instagram.js`: steps through the carousel, collects each slide at full size,
+downloads them straight away (Instagram's image links expire) and sends them as files credited to the account.
 Design preview without the extension: `/dev/popup-preview.html` on the mock server. Test: `dev/extension_test.py`.
 
 Pages: `index.html` + `app.js` (library, record, inbox review, add), `capture.html` (the bookmark button's window),

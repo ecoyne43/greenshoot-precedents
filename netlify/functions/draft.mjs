@@ -38,7 +38,7 @@ export default handle(async (req) => {
   // they ticked none, the page's own. Groundwork looks at up to 8 to caption and type them, but everything the sender
   // chose stays on the list, however large (the browser shrinks images when they're approved).
   const picked = (item.images || []).filter((v, i, a) => a.indexOf(v) === i);
-  const chosen = [...(item.uploads || []).map(x => ({ key: x.key, type: x.type, mine: true })), ...picked.map(url => ({ url, mine: true }))];
+  const chosen = [...(item.uploads || []).map(x => ({ key: x.key, type: x.type, mine: true, credit: x.credit, src: x.src })), ...picked.map(url => ({ url, mine: true }))];
   const cands = chosen.length ? chosen : (meta?.images || []).map(url => ({ url }));
   const seen = [];
   for (const c of cands) {
@@ -52,6 +52,7 @@ export default handle(async (req) => {
     } catch { /* skip images that cannot be fetched */ }
   }
 
+  const ownCount = (item.uploads || []).filter(x => !x.credit).length;
   const text = [
     item.url && `PAGE: ${item.url}`, (meta?.title || item.title) && `TITLE: ${meta?.title || item.title}`,
     (meta?.site || item.site) && `SITE: ${meta?.site || item.site}`, (meta?.author || item.author) && `AUTHOR: ${meta?.author || item.author}`,
@@ -59,7 +60,8 @@ export default handle(async (req) => {
     item.note && `NOTE FROM ${item.by || "the sender"}: ${item.note}`,
     item.text && `TEXT THE SENDER HIGHLIGHTED:\n${item.text.slice(0, 8000)}`,
     meta?.text && `PAGE TEXT:\n${meta.text.slice(0, 9000)}`,
-    (item.uploads || []).length && `The first ${(item.uploads || []).length} image(s) are the sender's own photos or screenshots.`,
+    ownCount && `The first ${ownCount} image(s) are the sender's own photos or screenshots.`,
+    item.site === "Instagram" && `This came from an Instagram post: the caption is the account's own words, so treat claims in it with care.`,
     `There are ${seen.length} image(s), in order.`,
   ].filter(Boolean).join("\n\n");
 
@@ -78,13 +80,13 @@ export default handle(async (req) => {
     images: [...seen.map((c, n) => ({
       ...(c.key ? { key: c.key } : { url: c.url }),
       image_type: out.images?.[n]?.image_type || "Photo", caption: out.images?.[n]?.caption || "",
-      credit: out.images?.[n]?.credit || (c.key ? item.by : meta?.site || item.site || ""),
-      keep: c.mine || out.images?.[n]?.keep !== false, source_url: c.url || item.url || "",
+      credit: c.credit || out.images?.[n]?.credit || (c.key ? item.by : meta?.site || item.site || ""),
+      keep: c.mine || out.images?.[n]?.keep !== false, source_url: c.src || c.url || item.url || "",
     })),
     // What the sender chose but Groundwork didn't look at (too large, or over 8): kept, with plain defaults.
     ...chosen.filter(c => !seen.some(x => (x.key && x.key === c.key) || (x.url && x.url === c.url))).map(c => ({
       ...(c.key ? { key: c.key } : { url: c.url }), image_type: "Photo", caption: "",
-      credit: c.key ? item.by : meta?.site || item.site || "", keep: true, source_url: c.url || item.url || "",
+      credit: c.credit || (c.key ? item.by : meta?.site || item.site || ""), keep: true, source_url: c.src || c.url || item.url || "",
     }))],
     duplicates: item.target ? [] : findDuplicates(record, records, (out.same_as || []).filter(m => m.id !== item.target)),
     confidence: out.confidence || "medium", notes: out.notes || "",
