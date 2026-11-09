@@ -295,7 +295,8 @@ function openAddTo(r) {
   card.innerHTML = `<div class="modal-h"><h2>Add to ${esc(r.id)} ${esc(r.name)}</h2><button class="link" id="mclose">Cancel</button></div>
     <form id="addto-form" class="addto-form">
       <p class="muted">New photos, a web page with more about it, or just context in a note. Groundwork reads it alongside the existing entry and suggests what to add; you check it in the inbox.</p>
-      <label class="fl long"><span>Web page <em>optional</em></span><input name="url" type="url" placeholder="https://..."></label>
+      <div class="urlrow"><label class="fl long"><span>Web page <em>optional</em></span><input name="url" type="url" id="at-url" placeholder="https://..."></label><button type="button" class="btn" id="at-get">Get images</button></div>
+      <div class="ipick" id="at-imgs" hidden></div>
       <label class="drop" id="at-drop"><input type="file" accept="image/*" multiple hidden id="at-files"><span><b>Drop photos here</b>, paste (Cmd/Ctrl+V), or click to choose <em>optional, up to 8</em></span></label>
       <div class="drop-list" id="at-list"></div>
       <label class="fl long"><span>Note or context <em>optional</em></span><textarea name="note" rows="3" placeholder="e.g. Photos from our site visit, Nov 2026. The panels were designed with Wurundjeri women Elders..."></textarea></label>
@@ -305,6 +306,12 @@ function openAddTo(r) {
   m.hidden = false; document.body.classList.add("noscroll");
   document.getElementById("mclose").onclick = closeModal;
   const pick = photoPicker(document.getElementById("at-drop"), document.getElementById("at-files"), document.getElementById("at-list"));
+  const web = imagePicker(document.getElementById("at-imgs")), urlIn = document.getElementById("at-url");
+  let loaded = "";
+  const getImages = () => { const u = urlIn.value.trim(); if (!/^https?:\/\//.test(u)) { urlIn.reportValidity(); return; } if (u !== loaded) { loaded = u; web.load(u); } };
+  document.getElementById("at-get").onclick = getImages;
+  urlIn.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); getImages(); } };
+  urlIn.onpaste = () => setTimeout(getImages, 0);   // paste a link and the images appear
   document.getElementById("addto-form").onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target), url = String(fd.get("url") || "").trim(), note = String(fd.get("note") || "").trim();
@@ -312,7 +319,9 @@ function openAddTo(r) {
     if (!url && !note && !pick.count()) { msg.className = "msg bad"; msg.textContent = "Add a link, some photos or a note."; return; }
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Sending...";
     try {
-      const item = await sendToInbox({ url, note, target: r.id, title: url ? "" : `More for ${r.name}` }, pick.files(), pick.webImgs());
+      const pg = url && url === loaded ? web.page() : null;
+      const item = await sendToInbox({ url, note, target: r.id, title: pg?.title || (url ? "" : `More for ${r.name}`), site: pg?.site || "" },
+        pick.files(), [...pick.webImgs(), ...(pg ? web.selected() : [])]);
       pick.stop(); closeModal(); await loadInbox();
       location.hash = `#/inbox/${item.id}`;
     } catch (err) { msg.className = "msg bad"; msg.textContent = `Couldn't send: ${err.message}`; btn.disabled = false; }
@@ -355,6 +364,66 @@ function photoPicker(drop, input, list) {
   const stop = () => document.removeEventListener("paste", onPaste);
   document.addEventListener("paste", onPaste);
   return { files: () => files, webImgs: () => webImgs, count: () => files.length + webImgs.length, stop, clear() { files = []; webImgs = []; show(); } };
+}
+
+// Image picker: reads a web page and shows every photo on it in a grid; tick the ones you want. Tiny images (icons,
+// logos) are hidden behind "show small ones". Images a site won't show directly are loaded through the site's proxy.
+function imagePicker(box) {
+  let page = null, urls = [], sel = new Set(), small = new Set(), broken = new Set(), showSmall = false;
+  const proxied = u => `/api/proxy-image?url=${encodeURIComponent(u)}&t=${st.cfg.token}`;
+  const visible = () => urls.filter(u => !broken.has(u) && (showSmall || !small.has(u)));
+  const head = () => {
+    const v = visible(), hid = urls.filter(u => small.has(u) && !broken.has(u)).length;
+    box.querySelector(".ip-head").innerHTML = `<span><b>${v.length}</b> image${v.length === 1 ? "" : "s"} on ${esc(page.site || "the page")} · <b>${sel.size}</b> ticked</span>
+      <span><button type="button" class="link" data-ip="all">Tick all</button> · <button type="button" class="link" data-ip="none">None</button>${hid ? ` · <button type="button" class="link" data-ip="small">${showSmall ? "Hide" : "Show"} ${hid} small</button>` : ""}</span>`;
+    box.querySelectorAll("[data-ip]").forEach(b => b.onclick = () => {
+      if (b.dataset.ip === "all") visible().forEach(u => sel.add(u));
+      if (b.dataset.ip === "none") sel.clear();
+      if (b.dataset.ip === "small") showSmall = !showSmall;
+      cells();
+    });
+  };
+  const cells = () => {
+    box.querySelectorAll(".ip-cell").forEach(c => {
+      const u = c.dataset.u;
+      c.hidden = broken.has(u) || (!showSmall && small.has(u));
+      c.classList.toggle("on", sel.has(u));
+      c.querySelector("input").checked = sel.has(u);
+    });
+    head();
+  };
+  const draw = () => {
+    if (!urls.length) { box.innerHTML = `<p class="msg">No photos found on that page. Try the Precedents button in your browser on the page itself, or save the images and drop them in.</p>`; return; }
+    box.innerHTML = `<div class="ip-head"></div><div class="ip-grid">${urls.map(u => `<label class="ip-cell" data-u="${esc(u)}"><img alt="" loading="lazy" referrerpolicy="no-referrer" src="${esc(u)}"><input type="checkbox"><span class="ip-size"></span></label>`).join("")}</div>`;
+    box.querySelectorAll(".ip-cell").forEach(c => {
+      const u = c.dataset.u, im = c.querySelector("img");
+      im.onload = () => {
+        c.querySelector(".ip-size").textContent = `${im.naturalWidth}×${im.naturalHeight}`;
+        if (im.naturalWidth < 300 && im.naturalHeight < 300) { small.add(u); sel.delete(u); cells(); }
+      };
+      im.onerror = () => { if (!im.dataset.p) { im.dataset.p = 1; im.src = proxied(u); } else { broken.add(u); sel.delete(u); cells(); } };
+      c.querySelector("input").onchange = e => { e.target.checked ? sel.add(u) : sel.delete(u); cells(); };
+    });
+    cells();
+  };
+  return {
+    async load(url) {
+      box.hidden = false;
+      box.innerHTML = `<p class="muted small">Looking for images on the page...</p>`;
+      try { page = await api(`/api/page-images?url=${encodeURIComponent(url)}`); }
+      catch (e) {
+        page = null;
+        box.innerHTML = `<p class="msg bad">${esc(e.message)}.${e.status === 502 ? " Open the page and use the Precedents button in your browser instead: it can send images from any page you can see." : ""}</p>`;
+        return null;
+      }
+      urls = page.images || []; sel = new Set(); small = new Set(); broken = new Set(); showSmall = false;
+      draw();
+      return page;
+    },
+    page: () => page,
+    selected: () => urls.filter(u => sel.has(u) && !broken.has(u)),
+    clear() { page = null; urls = []; sel = new Set(); box.innerHTML = ""; box.hidden = true; },
+  };
 }
 
 // ---------- inbox ----------
@@ -468,10 +537,10 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   el.className = "rf";
   let rec = record, target = targetId;
   // Images: existing ones on the record (keys) plus candidates from the inbox item (inbox upload keys or web urls).
-  let pics = [];
+  let pics = [], extra = [];   // extra: images added here with "Add images from a link"
   const setPics = () => {
     pics = [...(rec.images || []).map(i => ({ ...i, existing: true, keep: true })),
-      ...draftImages.map(i => ({ ...i, existing: false }))];
+      ...draftImages.map(i => ({ ...i, existing: false })), ...extra];
     if (!pics.some(p => p.primary && p.keep)) { const f = pics.find(p => p.keep); if (f) f.primary = true; }
   };
   setPics();
@@ -491,7 +560,11 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
         <div class="pic-img"><img alt="" referrerpolicy="no-referrer" src="${esc(src(p))}"><label class="keep"><input type="checkbox" data-keep="${n}" ${p.keep ? "checked" : ""}></label><button type="button" class="star ${p.primary ? "on" : ""}" data-star="${n}" title="Main image">★</button></div>
         <select data-itype="${n}">${c.imageTypes.map(t => `<option ${t === p.image_type ? "selected" : ""}>${t}</option>`).join("")}</select>
         <input data-credit="${n}" placeholder="Credit" value="${esc(p.credit || "")}">
-      </div>`).join("")}</div>` : `<p class="muted small">No images. You can add some later by sending the page again.</p>`}
+      </div>`).join("")}</div>` : `<p class="muted small">No images yet.</p>`}
+      <div class="addlink"><button type="button" class="btn" id="al-open">+ Add images from a link</button>
+        <div id="al" hidden><div class="urlrow"><label class="fl long"><span>Web page with photos of this project</span><input type="url" id="al-url" placeholder="https://..."></label><button type="button" class="btn" id="al-get">Get images</button></div>
+        <div class="ipick" id="al-imgs" hidden></div>
+        <div class="al-actions"><button type="button" class="link" id="al-cancel">Cancel</button><span></span><button type="button" class="btn primary" id="al-add">Add ticked images</button></div></div></div>
     </div>
     <div class="rf-sec"><h3>Details</h3>
       <div class="fl-grid">${short.map(field).join("")}
@@ -522,8 +595,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     </div>
     <p class="msg" id="rf-msg" role="status"></p>`;
 
-    el.querySelectorAll("[data-keep]").forEach(x => x.onchange = () => { pics[+x.dataset.keep].keep = x.checked; if (!x.checked && pics[+x.dataset.keep].primary) { pics[+x.dataset.keep].primary = false; const f = pics.find(p => p.keep); if (f) f.primary = true; } keepScroll(draw); });
-    el.querySelectorAll("[data-star]").forEach(x => x.onclick = () => { pics.forEach((p, n) => { p.primary = n === +x.dataset.star; if (p.primary) p.keep = true; }); keepScroll(draw); });
+    el.querySelectorAll("[data-keep]").forEach(x => x.onchange = () => { sync(); pics[+x.dataset.keep].keep = x.checked; if (!x.checked && pics[+x.dataset.keep].primary) { pics[+x.dataset.keep].primary = false; const f = pics.find(p => p.keep); if (f) f.primary = true; } keepScroll(draw); });
+    el.querySelectorAll("[data-star]").forEach(x => x.onclick = () => { sync(); pics.forEach((p, n) => { p.primary = n === +x.dataset.star; if (p.primary) p.keep = true; }); keepScroll(draw); });
     el.querySelectorAll("[data-itype]").forEach(x => x.onchange = () => { pics[+x.dataset.itype].image_type = x.value; });
     el.querySelectorAll("[data-credit]").forEach(x => x.oninput = () => { pics[+x.dataset.credit].credit = x.value; });
     el.querySelector("#discard")?.addEventListener("click", async () => {
@@ -534,7 +607,38 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     el.querySelector("#unmerge")?.addEventListener("click", () => { rec = item.draft.record; target = null; topHTML = ""; topAns = null; setPics(); draw(); });
     if (topHTML) { el.querySelector("#prop-top").innerHTML = topHTML; wireProposals(el.querySelector("#prop-top"), topAns); }
     el.querySelector("#fill").onclick = fillGaps;
+    wireAddLink();
   };
+  // Keep what's been typed when the form redraws.
+  const sync = () => { if (el.querySelector("[name=name]")) rec = { ...rec, ...read() }; };
+
+  // "Add images from a link": read a page, tick photos, and they join the images above (saved when you approve or save).
+  function wireAddLink() {
+    const box = el.querySelector("#al"), urlIn = el.querySelector("#al-url"), web = imagePicker(el.querySelector("#al-imgs"));
+    let loaded = "";
+    const get = () => { const u = urlIn.value.trim(); if (!/^https?:\/\//.test(u)) { urlIn.reportValidity(); return; } if (u !== loaded) { loaded = u; web.load(u); } };
+    el.querySelector("#al-open").onclick = () => {
+      box.hidden = false; el.querySelector("#al-open").hidden = true;
+      // Start from the page this came from, or the record's first source.
+      urlIn.value = item?.url || (rec.sources || []).map(x => (x.match(/https?:\/\/\S+/) || [])[0]).find(Boolean) || "";
+      if (urlIn.value) get(); else urlIn.focus();
+    };
+    el.querySelector("#al-get").onclick = get;
+    urlIn.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); get(); } };
+    urlIn.onpaste = () => setTimeout(get, 0);
+    el.querySelector("#al-cancel").onclick = () => { web.clear(); box.hidden = true; el.querySelector("#al-open").hidden = false; };
+    el.querySelector("#al-add").onclick = () => {
+      const pg = web.page(), have = new Set(pics.map(p => p.url).filter(Boolean)), urls = web.selected().filter(u => !have.has(u));
+      if (!pg || !urls.length) { toast("Tick some images first."); return; }
+      sync();
+      const add = urls.map(u => ({ url: u, image_type: "Photo", caption: "", credit: pg.site || "", keep: true, existing: false, source_url: pg.url }));
+      extra.push(...add); pics.push(...add);
+      if (!pics.some(p => p.primary && p.keep)) { const f = pics.find(p => p.keep); if (f) f.primary = true; }
+      if (!(rec.sources || []).some(x => x.includes(pg.url))) rec = { ...rec, sources: [...(rec.sources || []), `${pg.title || pg.site}, ${pg.url}`] };
+      keepScroll(draw);
+      toast(`${add.length} image${add.length === 1 ? "" : "s"} added. Set their types below, then ${item ? "approve" : "save"}.`);
+    };
+  }
   const keepScroll = fn => { const y = window.scrollY, m = document.getElementById("modal-card"), my = m?.scrollTop; fn(); window.scrollTo(0, y); if (m) m.scrollTop = my; };
 
   const read = () => {

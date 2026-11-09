@@ -29,6 +29,52 @@ function jsonLd(html) {
 const nameOf = v => (Array.isArray(v) ? v.map(nameOf).filter(Boolean).join("; ") : v && typeof v === "object" ? (v.name || v["@id"] || "") : String(v ?? ""));
 const urlOf = v => (Array.isArray(v) ? urlOf(v[0]) : v && typeof v === "object" ? (v.contentUrl || v.url || "") : String(v ?? ""));
 
+// Every likely photo on a page, largest version where the page offers several: the page's own picks (og:image and
+// so on), then <img> (srcset, lazy-loading attributes), <picture> sources, links straight to image files (gallery
+// "view full size" links), background images, and image addresses in the page's scripts (many galleries keep their
+// photos there). Logos, icons and tracking pixels are left out; tiny images are hidden later by the picker.
+export function pageImages(html, pageUrl, max = 80, first = []) {
+  const out = [], seen = new Set();
+  const JUNK = /logo|icon|sprite|avatar|badge|spacer|pixel|tracking|emoji|favicon|placeholder|blank\.(gif|png)|loader|spinner|\/ads?\//i;
+  const add = u => {
+    if (!u || out.length >= max) return;
+    const a = abs(decode(String(u)).trim().replace(/\\\//g, "/"), pageUrl);
+    if (!a || !/^https?:/.test(a) || /\.svg(\?|#|$)/i.test(a) || JUNK.test(a)) return;
+    // Same picture at another size (WordPress "-1024x683", query strings) counts once.
+    const k = /\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i.test(a) ? a.replace(/[?#].*$/, "").replace(/-\d{2,4}x\d{2,4}(?=\.\w+$)/, "") : a;
+    if (seen.has(k)) return;
+    seen.add(k); out.push(a);
+  };
+  const largest = set => {
+    let best = "", bw = -1;
+    for (const part of String(set || "").split(/,\s+(?=\S)/)) {
+      const [u, d] = part.trim().split(/\s+/);
+      const w = d ? parseFloat(d) * (/x$/.test(d) ? 1000 : 1) : 1;
+      if (u && w > bw) { bw = w; best = u; }
+    }
+    return best;
+  };
+  first.filter(Boolean).forEach(add);
+  // A thumbnail linked to its full-size image: take the full size, in the thumbnail's place.
+  html = html.replace(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'][^>]*>([\s\S]{0,3000}?)<\/a>/gi,
+    (all, href, inner) => /<img\b/i.test(inner) ? `<img src="${href}">` : all);
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const t = m[0];
+    const w = +attr(t, "width") || 0, h = +attr(t, "height") || 0;
+    if ((w && w < 150) || (h && h < 120)) continue;
+    add(largest(attr(t, "data-srcset") || attr(t, "srcset")) || attr(t, "data-full") || attr(t, "data-large") || attr(t, "data-original")
+      || attr(t, "data-lazy-src") || attr(t, "data-src") || attr(t, "src"));
+  }
+  for (const m of html.matchAll(/<source\b[^>]*>/gi)) add(largest(attr(m[0], "data-srcset") || attr(m[0], "srcset")));
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["']/gi)) add(m[1]);
+  for (const m of html.matchAll(/background(?:-image)?\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/gi)) add(m[1]);
+  // Gallery data in scripts: site-relative image paths in quotes ("/media/a.jpg", JSON-escaped "\/media\/a.jpg").
+  for (const sc of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi))
+    for (const m of sc[1].matchAll(/["']((?:\\?\/)(?!\\?\/)[^"'\s<>()]+?\.(?:jpe?g|png|webp))["']/gi)) add(m[1]);
+  for (const m of html.matchAll(/https?:(?:\\?\/){2}[^"'\s<>()]+?\.(?:jpe?g|png|webp)(?:\?[^"'\s<>()]*)?(?=["'\s<>)])/gi)) add(m[0]);
+  return out;
+}
+
 export function pageMeta(html, pageUrl) {
   const meta = {};
   for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
@@ -42,18 +88,8 @@ export function pageMeta(html, pageUrl) {
   const ld = jsonLd(html);
   const pick = (...keys) => { for (const o of ld) for (const k of keys) if (o[k]) return o[k]; return ""; };
 
-  const images = [];
-  const addImg = u => { const a = abs(u, pageUrl); if (a && /^https?:/.test(a) && !images.includes(a)) images.push(a); };
-  [meta["og:image"], meta["og:image:url"], meta["twitter:image"], meta["twitter:image:src"], urlOf(pick("contentUrl")), urlOf(pick("image")), urlOf(pick("thumbnailUrl"))]
-    .filter(Boolean).forEach(addImg);
-  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
-    if (images.length >= 12) break;
-    const src = attr(m[0], "data-src") || attr(m[0], "src");
-    const w = +attr(m[0], "width") || 0, h = +attr(m[0], "height") || 0;
-    if (!src || src.startsWith("data:") || /logo|icon|sprite|avatar|badge|spacer/i.test(src)) continue;
-    if ((w && w < 150) || (h && h < 120)) continue;
-    addImg(src);
-  }
+  const images = pageImages(html, pageUrl, 40, [meta["og:image"], meta["og:image:url"], meta["twitter:image"], meta["twitter:image:src"],
+    urlOf(pick("contentUrl")), urlOf(pick("image")), urlOf(pick("thumbnailUrl"))]);
 
   const text = decode(html
     .replace(/<(script|style|noscript|svg|nav|footer|header)\b[\s\S]*?<\/\1>/gi, " ")

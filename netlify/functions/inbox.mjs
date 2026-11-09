@@ -55,7 +55,7 @@ export default handle(async (req) => {
       id, created, status: "new", by: userName(req),
       url: s(b.url, 2000), title: s(b.title, 300), site: s(b.site, 120), author: s(b.author, 200), date: s(b.date, 60),
       text: s(b.text, 20000), note: s(b.note, 2000),
-      images: (Array.isArray(b.images) ? b.images : []).filter(u => /^https?:/.test(u)).slice(0, 10).map(x => s(x, 2000)),
+      images: (Array.isArray(b.images) ? b.images : []).filter(u => /^https?:/.test(u)).slice(0, 30).map(x => s(x, 2000)),
       from: ["extension", "mac", "upload"].includes(b.from) ? b.from : "web", uploads: [],
       ...(/^PR-\d{4}$/.test(b.target || "") ? { target: b.target } : {}),   // sent with "Add to this precedent"
     };

@@ -34,9 +34,12 @@ export default handle(async (req) => {
   const u = safeUrl(item.url);
   const meta = u ? await readPage(u.href) : null;
 
-  // Images: the sender's uploads first, then the images they picked on the page, then the page's own.
-  const cands = [...(item.uploads || []).map(x => ({ key: x.key, type: x.type })),
-    ...[...(item.images || []), ...(meta?.images || [])].filter((v, i, a) => a.indexOf(v) === i).map(url => ({ url }))];
+  // Images: the sender's uploads, then the images they ticked (in the picker, extension or bookmark button); only if
+  // they ticked none, the page's own. Groundwork looks at up to 8 to caption and type them, but everything the sender
+  // chose stays on the list, however large (the browser shrinks images when they're approved).
+  const picked = (item.images || []).filter((v, i, a) => a.indexOf(v) === i);
+  const chosen = [...(item.uploads || []).map(x => ({ key: x.key, type: x.type, mine: true })), ...picked.map(url => ({ url, mine: true }))];
+  const cands = chosen.length ? chosen : (meta?.images || []).map(url => ({ url }));
   const seen = [];
   for (const c of cands) {
     if (seen.length >= MAX_IMAGES) break;
@@ -72,12 +75,17 @@ export default handle(async (req) => {
   if (item.url && !record.sources.some(x => x.includes(item.url))) record.sources.unshift(`${meta?.title || item.title || item.url}, ${item.url}`);
   item.draft = {
     record,
-    images: seen.map((c, n) => ({
+    images: [...seen.map((c, n) => ({
       ...(c.key ? { key: c.key } : { url: c.url }),
       image_type: out.images?.[n]?.image_type || "Photo", caption: out.images?.[n]?.caption || "",
       credit: out.images?.[n]?.credit || (c.key ? item.by : meta?.site || item.site || ""),
-      keep: out.images?.[n]?.keep !== false, source_url: c.url || item.url || "",
+      keep: c.mine || out.images?.[n]?.keep !== false, source_url: c.url || item.url || "",
     })),
+    // What the sender chose but Groundwork didn't look at (too large, or over 8): kept, with plain defaults.
+    ...chosen.filter(c => !seen.some(x => (x.key && x.key === c.key) || (x.url && x.url === c.url))).map(c => ({
+      ...(c.key ? { key: c.key } : { url: c.url }), image_type: "Photo", caption: "",
+      credit: c.key ? item.by : meta?.site || item.site || "", keep: true, source_url: c.url || item.url || "",
+    }))],
     duplicates: item.target ? [] : findDuplicates(record, records, (out.same_as || []).filter(m => m.id !== item.target)),
     confidence: out.confidence || "medium", notes: out.notes || "",
     read_page: !!meta, drafted: new Date().toISOString(),

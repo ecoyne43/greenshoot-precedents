@@ -18,7 +18,7 @@ Object.assign(process.env, {
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image" };
+  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image", "page-images": "page-images" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -91,6 +91,19 @@ const FAKE_PAGE = `<!doctype html><html><head><title>Tidewater Weaving Pavilion 
 <body><h1>Tidewater Weaving Pavilion</h1><p>Example Studio has completed a timber pavilion on the foreshore at Port Sample, its roof screens drawing on woven fish-trap forms.</p>
 <img src="/fake-site/a.jpg" width="1200" height="800"><img src="/fake-site/b.jpg" width="1200" height="800"><img src="/fake-site/c.jpg" width="1200" height="800"><img src="/fake-site/d.jpg" width="1200" height="800"></body></html>`;
 
+// A gallery page laid out the ways real sites hide their photos: srcset, lazy loading, a link to the full size,
+// a CSS background and gallery data in a script. Plus a logo the picker should tuck away.
+const GALLERY_PAGE = `<!doctype html><html><head><title>Tidewater Weaving Pavilion, photo essay</title>
+<meta property="og:site_name" content="Sample Landscape Review"></head><body>
+<img src="/fake-site/logo.jpg" alt="Sample Landscape Review">
+<h1>Tidewater Weaving Pavilion</h1>
+<img src="/fake-site/g1-400.jpg" srcset="/fake-site/g1-400.jpg 400w, /fake-site/g1.jpg 1600w">
+<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="/fake-site/g2.jpg" class="lazy">
+<a href="/fake-site/g3.jpg"><img src="/fake-site/g3-400.jpg" width="400" height="267"></a>
+<div class="hero" style="background-image: url('/fake-site/g4.jpg')"></div>
+<script>window.gallery = {"slides":[{"src":"\\/fake-site\\/g5.jpg"}]};</script>
+</body></html>`;
+
 // ---------- server ----------
 // ---------- fake Cloudflare: the real Worker (cloudflare/images-worker.js) over a folder standing in for R2 ----------
 const R2DIR = join(RUN, "r2");
@@ -150,6 +163,7 @@ http.createServer(async (req, res) => {
     }
     if (url.pathname === "/__claude") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(claudeLog)); }
     if (/^\/dev\/[a-z-]+-preview\.html$/.test(url.pathname)) { res.writeHead(200, { "content-type": "text/html" }); return res.end(readFileSync(join(ROOT, url.pathname.slice(1)))); }
+    if (url.pathname === "/fake-site/gallery.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(GALLERY_PAGE); }
     if (url.pathname === "/fake-site/project.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(FAKE_PAGE); }
     if (url.pathname.startsWith("/fake-site/")) {
       const p = join(RUN, "fake-site", url.pathname.slice(11));

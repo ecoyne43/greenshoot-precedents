@@ -66,7 +66,7 @@ with sync_playwright() as p:
     # something sent from the bookmark button / extension
     item = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "title": "Tidewater Weaving Pavilion / Example Studio",
                 "site": "Sample Architecture News", "text": "Example Studio has completed a timber pavilion...", "note": "Great woven roof screen (co-design test)",
-                "images": [BASE + "/fake-site/a.jpg", BASE + "/fake-site/b.jpg"], "from": "extension"})["item"]
+                "from": "extension"})["item"]   # no images ticked, so Groundwork takes the page's own
     check(item["by"] == "Jez", "inbox item credited to the sender")
     pg.goto(BASE + "/#/inbox"); pg.wait_for_selector(".ib")
     check(pg.locator("#inbox-count").inner_text() == "1", "inbox badge shows 1")
@@ -152,6 +152,49 @@ with sync_playwright() as p:
     check(len(rec1["images"]) > n_before and rec1["awards"] == "Sample Award 2026", "PR-0001 has the new photos and details")
     check(len(json.load(open(f"{RUN}/data/precedents.json"))["records"]) == 10, "no new record made")
     check("new material from" in pg.locator(".attrib").inner_text(), "record shows who added material")
+
+    # "Add to this precedent" with a link: Get images shows every photo on the page; the ticked ones all come through
+    recs = lambda: {r["id"]: r for r in json.load(open(f"{RUN}/data/precedents.json"))["records"]}
+    n3 = len(recs()["PR-0003"]["images"])
+    pg.goto(BASE + "/#/p/PR-0003"); pg.wait_for_selector("#addto"); pg.click("#addto"); pg.wait_for_selector("#addto-form")
+    pg.fill("#at-url", BASE + "/fake-site/gallery.html"); pg.click("#at-get")
+    pg.wait_for_function("document.querySelectorAll('#at-imgs .ip-cell:not([hidden])').length === 5 && [...document.querySelectorAll('#at-imgs .ip-size')].filter(x => x.textContent).length >= 5", timeout=20000)
+    shown = pg.eval_on_selector_all("#at-imgs .ip-cell:not([hidden])", "els => els.map(e => e.dataset.u.split('/').pop())")
+    check(sorted(shown) == ["g1.jpg", "g2.jpg", "g3.jpg", "g4.jpg", "g5.jpg"], f"Get images finds the full-size photos, hides the logo ({shown})")
+    pg.click("#at-imgs [data-ip=all]")
+    pg.locator("#at-imgs .ip-cell:not([hidden])").nth(4).click()   # untick one
+    check("4</b> ticked" in pg.inner_html("#at-imgs .ip-head"), "ticking counts")
+    pg.screenshot(path=f"{OUT}/14_get_images.png")
+    pg.click("#at-send")
+    pg.wait_for_selector(".target:has-text('PR-0003')", timeout=60000)
+    n_rev = pg.locator("#form-host .pic input[data-keep]:checked").count()
+    check(n_rev == n3 + 4, f"existing images plus all 4 ticked ones in the review ({n_rev})")
+    pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=60000)
+    check(len(recs()["PR-0003"]["images"]) == n3 + 4, "the 4 images are added to PR-0003")
+
+    # Edit (or inbox review): "Add images from a link" right in the form
+    n4 = len(recs()["PR-0004"]["images"])
+    pg.goto(BASE + "/#/p/PR-0004"); pg.wait_for_selector("#edit"); pg.click("#edit"); pg.wait_for_selector("#modal .rf")
+    pg.fill('#modal input[name="architect"]', "Typed before adding images")
+    pg.click("#al-open"); pg.fill("#al-url", BASE + "/fake-site/gallery.html"); pg.click("#al-get")
+    pg.wait_for_function("document.querySelectorAll('#al-imgs .ip-cell:not([hidden])').length === 5", timeout=20000)
+    cells = pg.locator("#al-imgs .ip-cell:not([hidden])"); cells.nth(0).click(); cells.nth(2).click()
+    pg.screenshot(path=f"{OUT}/15_add_from_link.png", full_page=True)
+    before = pg.locator("#modal .pic").count()
+    pg.click("#al-add")
+    check(pg.locator("#modal .pic").count() == before + 2, "two images join the form")
+    check(pg.input_value('#modal input[name="architect"]') == "Typed before adding images", "typing survives adding images")
+    check("gallery.html" in pg.input_value('#modal textarea[name="sources"]'), "the page is added to sources")
+    pg.click("#modal #save"); pg.wait_for_selector("#modal", state="hidden", timeout=60000)
+    r4 = recs()["PR-0004"]
+    check(len(r4["images"]) == n4 + 2 and r4["architect"] == "Typed before adding images", "saved with the new images")
+
+    # a site that won't be read gets a helpful message
+    pg.goto(BASE + "/#/p/PR-0003"); pg.wait_for_selector("#addto"); pg.click("#addto"); pg.wait_for_selector("#addto-form")
+    pg.fill("#at-url", BASE + "/fake-site/missing.html"); pg.click("#at-get")
+    pg.wait_for_selector("#at-imgs .msg.bad")
+    check("browser" in pg.inner_text("#at-imgs"), "blocked page suggests the browser button")
+    pg.click("#mclose")
 
     # in the inbox: Groundwork spots a match across the library; or choose one by hand
     item5 = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "title": "Another angle", "note": "riverbend test", "from": "web"})["item"]

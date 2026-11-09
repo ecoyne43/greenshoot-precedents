@@ -29,6 +29,7 @@ changes here can never break the live map tool.
 | `/api/ask` | Ask Groundwork, Find similar, find precedents for a brief |
 | `/api/research` | Check and fill online, step 1: web search for the precedent (can look at its images), streamed notes |
 | `/api/check` | Check and fill online, step 2: compares every field with the notes and the record's own text, proposes changes with reasons and sources |
+| `/api/page-images` | every likely photo on a web page, for the image picker ("Get images", "Add images from a link") |
 | `/api/img`, `/api/proxy-image` | serve stored images; fetch web images for the browser to shrink |
 
 Browser extension: `public/extension/` (Chrome and Edge, Manifest V3). The Get started page zips it with the

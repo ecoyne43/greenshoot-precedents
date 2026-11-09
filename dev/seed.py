@@ -92,6 +92,11 @@ json.dump({"records": records}, open(os.path.join(DATA, "precedents.json"), "w")
 for k, (kd, s) in enumerate([("pavilion", 91), ("aerial", 92), ("screen", 93)]):
     picture(s, kd, 1200, 800).save(os.path.join(SITE, "abc"[k] + ".jpg"), "JPEG", quality=80)
 Image.new("RGB", (1200, 800), (250, 250, 250)).save(os.path.join(SITE, "d.jpg"), "JPEG")
+# A gallery page's photos (srcset, lazy loading, links to full size, script data) and a small logo for the image picker.
+for k, (kd, sd) in enumerate([("pavilion", 81), ("screen", 82), ("aerial", 83), ("pavilion", 84), ("screen", 85)], 1):
+    picture(sd, kd, 1600, 1067).save(os.path.join(SITE, f"g{k}.jpg"), "JPEG", quality=80)
+    picture(sd, kd, 1600, 1067).resize((400, 267)).save(os.path.join(SITE, f"g{k}-400.jpg"), "JPEG", quality=70)
+Image.new("RGB", (120, 40), (30, 30, 30)).save(os.path.join(SITE, "logo.jpg"), "JPEG")
 # Big, detailed photos (random noise compresses badly), for testing Netlify's 6 MB request limit.
 import numpy as np
 for k in range(1, 7):
