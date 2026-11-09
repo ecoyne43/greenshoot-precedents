@@ -7,6 +7,7 @@ import { requireAuth, json, streamWithSearch } from "../lib/server.mjs";
 import { RESEARCH_RULES } from "../lib/prompts.mjs";
 import { recordText } from "../lib/library.mjs";
 import { store } from "../lib/blobs.mjs";
+import { getImage, LIB_KEY } from "../lib/imagestore.mjs";
 import { fetchImage } from "../lib/fetchimage.mjs";
 import { reverseImageSearch } from "../lib/vision.mjs";
 
@@ -15,8 +16,7 @@ const OK = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 async function load(im) {
   try {
     if (im.key) {
-      const lib = /^(PR-\d{4}|up)\//.test(im.key);
-      const buf = await store(lib ? "images" : "inbox-files").get(im.key, { type: "arrayBuffer" });
+      const buf = LIB_KEY.test(im.key) ? await getImage(im.key) : await store("inbox-files").get(im.key, { type: "arrayBuffer" });
       return buf ? { buf, type: im.key.endsWith(".png") ? "image/png" : "image/jpeg" } : null;
     }
     if (im.url) return await fetchImage(im.url);

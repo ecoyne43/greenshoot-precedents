@@ -16,6 +16,16 @@ def check(cond, what):
     print(("PASS " if cond else "FAIL ") + what)
     if not cond: errors.append(what)
 
+def r2_on():
+    return json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/move-images", headers={"x-app-password": "test"})))["remote"]
+
+# Images in Netlify Blobs (the seed) copied to Cloudflare, as the admin page does after setup.
+if r2_on():
+    after, done = "", False
+    while not done:
+        r = post("/api/move-images", {"after": after}); after, done = r["next"], r["done"]
+    check(r["position"] == r["total"] and r["total"] > 0, f"existing images copied to Cloudflare ({r['total']})")
+
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=2)
@@ -24,6 +34,9 @@ with sync_playwright() as p:
     pg.fill("#login-pw", "test"); pg.fill("#login-name", "Ed"); pg.click("#login-form button[type=submit]")
     pg.wait_for_selector(".card")
     check(pg.locator(".card").count() == 9, "library shows 9 sample records")
+    if r2_on():
+        srcs = pg.eval_on_selector_all(".card img", "els => els.map(e => [e.src, e.naturalWidth])")
+        check(all("/fake-r2/" in u for u, w in srcs) and all(w > 0 for u, w in srcs), "library images load straight from Cloudflare")
     pg.screenshot(path=f"{OUT}/1_library.png")
 
     # filters and keyword search
@@ -81,6 +94,10 @@ with sync_playwright() as p:
     check(pg.locator(".g-thumbs button").count() == 3, f"3 images saved (got {pg.locator('.g-thumbs button').count()})")
     attrib = pg.locator(".attrib").inner_text()
     check("Sent by Jez" in attrib and "approved by Ed" in attrib, "attribution: sent by Jez, approved by Ed")
+    if r2_on():
+        puts = [l for l in json.load(urllib.request.urlopen(BASE + "/__r2")) if l.startswith("PUT 201 /up/")]
+        check(len(puts) >= 6, f"approved images stored at Cloudflare ({len(puts)} files)")
+        check(all("/fake-r2/" in u for u in pg.eval_on_selector_all(".g-thumbs img", "els => els.map(e => e.src)")), "new images shown from Cloudflare")
     data = json.load(open(f"{RUN}/data/precedents.json"))
     rec = [r for r in data["records"] if r["id"] == "PR-0010"]
     check(bool(rec) and rec[0]["added_by"] == "Jez", "PR-0010 written to the data file")
@@ -199,6 +216,10 @@ with sync_playwright() as p:
     cap.click("#send"); cap.wait_for_selector("text=Sent")
     st = b.new_page(viewport={"width": 1280, "height": 900}, device_scale_factor=2)
     st.goto(BASE + "/start.html"); st.screenshot(path=f"{OUT}/9_start.png", full_page=True)
+
+    # admin page
+    pg.goto(BASE + "/#/admin"); pg.wait_for_selector(".admin")
+    check(("Cloudflare is set up" if r2_on() else "Images are in Netlify") in pg.inner_text(".admin") and len(pg.inner_text("code.tok")) == 32, "admin page shows storage and the Worker key")
 
     # phone width
     ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)

@@ -11,8 +11,9 @@ changes here can never break the live map tool.
 ## How it fits together
 - **Data**: `precedents.json` in a private GitHub repo (`ecoyne43/greenshoot-precedents-data`), `{ records: [...] }`.
   Every approval or edit is one commit, so there is a full history of who changed what.
-- **Images**: Netlify Blobs, store `images` (`PR-0001/img_xxx.jpg` plus `_t.jpg` thumbnail), shrunk in the browser
-  before upload. Record images are listed on each record.
+- **Images**: at Cloudflare R2 behind a Worker once set up (`cloudflare/`, `netlify/lib/imagestore.mjs`), otherwise
+  Netlify Blobs store `images`. Keys `PR-0001/img_xxx.jpg` or `up/img_xxx.jpg` plus `_t.jpg` thumbnails, shrunk in the
+  browser before upload. Admin page `/#/admin`: storage status, the Worker's key, copy existing images across. Record images are listed on each record.
 - **Inbox**: Netlify Blobs, stores `inbox` (items) and `inbox-files` (uploaded site photos and screenshots).
 - **Categories**: `netlify/lib/vocab.mjs`. The eight facets, status, scale and image types. The form, the filters
   and Groundwork's drafting all read from this file.
@@ -48,6 +49,8 @@ Pages: `index.html` + `app.js` (library, record, inbox review, add), `capture.ht
    - `APP_PASSWORD` the team password
    - `ANTHROPIC_API_KEY` (web search must be allowed for the key, for Fill gaps online)
    - `GITHUB_TOKEN`, `GITHUB_REPO=ecoyne43/greenshoot-precedents-data`
+   - optional `IMAGES_URL`, `IMAGES_UPLOAD_SECRET`: images at Cloudflare R2 behind a Worker (see `cloudflare/README.md`),
+     so viewing and downloading images uses no Netlify traffic. Without them, images stay in Netlify Blobs.
    - optional `GOOGLE_VISION_KEY`: Google Cloud Vision API key, for reverse image search when a precedent arrives
      as just an image (first 1,000 a month free, then US$3.50 per 1,000, Nov 2026)
    - optional `CLAUDE_MODEL` (default `claude-sonnet-5-5`), `DATA_PATH` (default `precedents.json`), `GITHUB_BRANCH`

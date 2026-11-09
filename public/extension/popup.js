@@ -34,7 +34,8 @@ async function api(path, body) {
   return res.json();
 }
 
-const imgUrl = key => `${SITE}/api/img?k=${encodeURIComponent(key)}&t=${lib.token}`;
+// Library images straight from Cloudflare once it's set up (lib.imgBase), otherwise from the site.
+const imgUrl = key => lib.imgBase ? `${lib.imgBase}/${key}?t=${lib.token}` : `${SITE}/api/img?k=${encodeURIComponent(key)}&t=${lib.token}`;
 const place = r => [r.city, r.state, r.country].filter(Boolean).join(", ") || r.location_text || "";
 const primary = r => (r.images || []).find(i => i.primary) || (r.images || [])[0];
 const hay = r => [r.id, r.name, r.also_known_as, r.location_text, r.city, r.state, r.country, r.country_to, r.year_completed,
@@ -54,7 +55,7 @@ async function start() {
 async function refresh() {
   try {
     const [cfg, { records }] = await Promise.all([api("/api/config"), api("/api/library")]);
-    lib = { records, token: cfg.token, at: Date.now() };
+    lib = { records, token: cfg.token, imgBase: cfg.imgBase || "", at: Date.now() };
     await store.set("lib", lib);
     render(true);
   } catch (e) {

@@ -2,7 +2,7 @@
 // (a local folder) and Claude (canned answers). Also serves a fake project web page for testing the inbox.
 //   node dev/mock-server.mjs [port]      password: test     data: dev/run/
 import http from "node:http";
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,10 +14,11 @@ Object.assign(process.env, {
   APP_PASSWORD: "test", LOCAL_DATA_DIR: join(RUN, "data"), BLOBS_DIR: join(RUN, "blobs"), ALLOW_LOCAL_FETCH: "1",
   ANTHROPIC_API_KEY: "fake", ANTHROPIC_BASE_URL: `http://localhost:${PORT}/fake-claude`,
   GOOGLE_VISION_KEY: "fake", GOOGLE_VISION_URL: `http://localhost:${PORT}/fake-vision`,
+  ...(process.env.NO_R2 ? {} : { IMAGES_URL: `http://localhost:${PORT}/fake-r2`, IMAGES_UPLOAD_SECRET: "upload-secret" }),
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", check: "check", upload: "upload", merge: "merge", img: "img", "proxy-image": "proxy-image" };
+  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -91,6 +92,23 @@ const FAKE_PAGE = `<!doctype html><html><head><title>Tidewater Weaving Pavilion 
 <img src="/fake-site/a.jpg" width="1200" height="800"><img src="/fake-site/b.jpg" width="1200" height="800"><img src="/fake-site/c.jpg" width="1200" height="800"><img src="/fake-site/d.jpg" width="1200" height="800"></body></html>`;
 
 // ---------- server ----------
+// ---------- fake Cloudflare: the real Worker (cloudflare/images-worker.js) over a folder standing in for R2 ----------
+const R2DIR = join(RUN, "r2");
+const r2 = {
+  async get(key) {
+    const p = join(R2DIR, encodeURIComponent(key));
+    if (!existsSync(p)) return null;
+    const body = readFileSync(p);
+    return { body, size: body.length, httpEtag: '"' + body.length + '"' };
+  },
+  async put(key, body) {
+    const chunks = []; for await (const c of body) chunks.push(Buffer.from(c));
+    mkdirSync(R2DIR, { recursive: true }); writeFileSync(join(R2DIR, encodeURIComponent(key)), Buffer.concat(chunks));
+  },
+};
+let worker;
+export const r2Log = [];
+
 const mods = {};
 async function fn(name) { return (mods[name] ||= (await import(join(ROOT, "netlify/functions", name + ".mjs"))).default); }
 
@@ -113,6 +131,17 @@ http.createServer(async (req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(fakeClaude(b)));
     }
+    if (url.pathname.startsWith("/fake-r2/")) {
+      worker ||= (await import(join(ROOT, "cloudflare/images-worker.js"))).default;
+      const { imageToken } = await import(join(ROOT, "netlify/lib/server.mjs"));
+      const wreq = new Request("http://worker" + url.pathname.slice(8) + url.search, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : body, duplex: "half" });
+      const out = await worker.fetch(wreq, { IMAGES: r2, IMAGE_TOKEN: imageToken(), UPLOAD_SECRET: "upload-secret" });
+      r2Log.push(`${req.method} ${out.status} ${url.pathname.slice(8)}`);
+      res.writeHead(out.status, Object.fromEntries(out.headers));
+      if (out.body) res.write(Buffer.from(await out.arrayBuffer()));
+      return res.end();
+    }
+    if (url.pathname === "/__r2") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(r2Log)); }
     if (url.pathname === "/fake-vision/v1/images:annotate") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ responses: [{ webDetection: { bestGuessLabels: [{ label: "tidewater weaving pavilion" }],

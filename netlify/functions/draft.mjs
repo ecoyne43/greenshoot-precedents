@@ -61,7 +61,7 @@ export default handle(async (req) => {
   ].filter(Boolean).join("\n\n");
 
   const { records } = await readLibrary();
-  const library = records.length ? `\n\nLIBRARY (already in it):\n${records.map(shortLine).join("\n").slice(0, 60000)}` : "\n\nLIBRARY: (empty)";
+  const library = records.length ? `\n\nLIBRARY (already in it):\n${records.map(shortLine).join("\n").slice(0, 200000)}` : "\n\nLIBRARY: (empty)";
   const content = [
     ...seen.map(i => ({ type: "image", source: { type: "base64", media_type: i.type, data: i.data } })),
     { type: "text", text: text + library + "\n\nDraft the precedent record." },

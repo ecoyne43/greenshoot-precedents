@@ -70,12 +70,15 @@ function route() {
     return renderInbox(arg);
   }
   if (tab === "add") return renderAdd();
+  if (tab === "admin") return renderAdmin();
   renderLibrary();
 }
 window.addEventListener("hashchange", route);
 
 // ---------- helpers ----------
-const img = (key, cls = "") => key ? `<img class="${cls}" loading="lazy" alt="" src="/api/img?k=${encodeURIComponent(key)}&t=${st.cfg.token}">` : "";
+// Library images come straight from Cloudflare once it's set up (cfg.imgBase); inbox uploads always from the site.
+const imgSrc = key => key.includes("/") && st.cfg.imgBase ? `${st.cfg.imgBase}/${key}?t=${st.cfg.token}` : `/api/img?k=${encodeURIComponent(key)}&t=${st.cfg.token}`;
+const img = (key, cls = "") => key ? `<img class="${cls}" loading="lazy" alt="" src="${imgSrc(key)}">` : "";
 const primary = r => (r.images || []).find(i => i.primary) || (r.images || [])[0];
 const place = r => [r.city, r.state, r.country].filter(Boolean).join(", ") || r.location_text || "";
 const designers = r => [r.architect, r.landscape_architect, r.artists].filter(Boolean).join(" · ");
@@ -473,7 +476,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   };
   setPics();
   const c = st.cfg;
-  const src = p => p.existing ? `/api/img?k=${encodeURIComponent(p.thumb_key)}&t=${c.token}` : p.key ? `/api/img?k=${encodeURIComponent(p.key)}&t=${c.token}` : p.url;
+  const src = p => p.existing ? imgSrc(p.thumb_key) : p.key ? imgSrc(p.key) : p.url;
   const field = f => `<label class="fl ${f.long ? "long" : ""}"><span>${esc(f.label)}${f.hint ? ` <em>${esc(f.hint)}</em>` : ""}</span>${f.long
     ? `<textarea name="${f.key}" rows="${f.key === "description" ? 6 : 3}">${esc(rec[f.key] || "")}</textarea>`
     : `<input name="${f.key}" value="${esc(rec[f.key] || "")}">`}</label>`;
@@ -645,7 +648,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
         msg.textContent = `Uploading images (${n + 1} of ${todo.length})...`;
         try {
           const blob = p.key
-            ? await (await fetch(`/api/img?k=${encodeURIComponent(p.key)}&t=${c.token}`)).blob()
+            ? await (await fetch(imgSrc(p.key))).blob()
             : await api(`/api/proxy-image?url=${encodeURIComponent(p.url)}`, { raw: true }).then(x => x.blob());
           const [big, thumb] = await Promise.all([shrink(blob, 1800, 0.82), shrink(blob, 560, 0.78)]);
           const up = await api("/api/upload", { method: "POST", body: { data: await toBase64(big), thumb: await toBase64(thumb) } });
@@ -746,6 +749,39 @@ function renderAdd() {
       await loadInbox(); toast("Photos sent to the inbox"); pick.clear(); e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";
+  };
+}
+
+// ---------- admin (#/admin): image storage ----------
+async function renderAdmin() {
+  view.innerHTML = `<div class="page"><h1>Image storage</h1><p class="muted">Loading...</p></div>`;
+  let s0;
+  try { s0 = await api("/api/move-images"); } catch (e) { view.innerHTML = `<div class="page"><p class="bad">${esc(e.message)}</p></div>`; return; }
+  view.innerHTML = `<div class="page admin">
+    <h1>Image storage</h1>
+    <p>${s0.remote ? "<b>Cloudflare is set up.</b> New images are stored there, and everyone views and downloads them straight from Cloudflare (no Netlify traffic)." : "<b>Images are in Netlify.</b> Set up Cloudflare (see <code>cloudflare/README.md</code> in the code) to store and serve them there."}</p>
+    <div class="panel"><h2>Key for the Cloudflare Worker</h2>
+      <p class="muted">The Worker's <b>IMAGE_TOKEN</b> secret must be exactly this. It comes from the team password, so if you change the password, update it in Cloudflare too.</p>
+      <p><code class="tok">${esc(s0.imageToken)}</code> <button class="btn" id="copytok">Copy</button></p></div>
+    <div class="panel"><h2>Copy existing images to Cloudflare</h2>
+      <p class="muted">${s0.total} image file${s0.total === 1 ? "" : "s"} (with thumbnails) in Netlify. Copying is safe to repeat and deletes nothing.</p>
+      <p><button class="btn primary" id="move" ${s0.remote && s0.total ? "" : "disabled"}>Copy images to Cloudflare</button></p>
+      <p class="msg" id="move-msg"></p></div>
+  </div>`;
+  document.getElementById("copytok").onclick = () => navigator.clipboard.writeText(s0.imageToken).then(() => toast("Copied"));
+  document.getElementById("move").onclick = async e => {
+    const btn = e.target, msg = document.getElementById("move-msg");
+    btn.disabled = true;
+    let after = "", done = false;
+    try {
+      while (!done) {
+        const r = await api("/api/move-images", { method: "POST", body: { after } });
+        after = r.next; done = r.done;
+        msg.textContent = `Copied ${r.position} of ${r.total}...`;
+      }
+      msg.textContent = `Done: all ${s0.total} image files are at Cloudflare.`;
+      await loadLibrary();
+    } catch (err) { msg.className = "msg bad"; msg.textContent = `Stopped: ${err.message}. Click again to carry on.`; btn.disabled = false; }
   };
 }
 

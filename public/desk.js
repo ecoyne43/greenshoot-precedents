@@ -34,7 +34,8 @@ async function api(path, body) {
 }
 
 const abs = p => new URL(p, location.href).href;
-const imgUrl = key => abs(`/api/img?k=${encodeURIComponent(key)}&t=${lib.token}`);
+// Library images straight from Cloudflare once it's set up (lib.imgBase), otherwise from the site.
+const imgUrl = key => lib.imgBase ? `${lib.imgBase}/${key}?t=${lib.token}` : abs(`/api/img?k=${encodeURIComponent(key)}&t=${lib.token}`);
 const place = r => [r.city, r.state, r.country].filter(Boolean).join(", ") || r.location_text || "";
 const designers = r => [r.architect, r.landscape_architect, r.artists].filter(Boolean).join(" · ");
 const primary = r => (r.images || []).find(i => i.primary) || (r.images || [])[0];
@@ -62,7 +63,7 @@ async function start() {
 async function refresh() {
   try {
     const [cfg, { records }] = await Promise.all([api("/api/config"), api("/api/library")]);
-    lib = { records, token: cfg.token };
+    lib = { records, token: cfg.token, imgBase: cfg.imgBase || "" };
     ls.set("gp_desk_cache", JSON.stringify(lib));
     if (view === "search") render(true);
   } catch (e) {

@@ -251,3 +251,4 @@ body.capture { background: var(--paper); }
 #prop-top .fill-box { margin-top: 8px; }
 .drafting.small-pad { padding: 16px 4px; }
 .addto-form { display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; }
+.admin .panel { margin-top: 16px; } .admin code.tok { font: 13px var(--mono); background: #fff; border: 1px solid var(--line); padding: 4px 8px; border-radius: 4px; word-break: break-all; }
