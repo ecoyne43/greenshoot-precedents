@@ -71,6 +71,7 @@ function route() {
   }
   if (tab === "add") return renderAdd();
   if (tab === "admin") return renderAdmin();
+  if (tab === "categories") return renderCategories();
   renderLibrary();
 }
 window.addEventListener("hashchange", route);
@@ -100,7 +101,7 @@ const ago = d => {
 // ---------- library ----------
 const haystack = r => [r.id, r.name, r.also_known_as, r.location_text, r.city, r.state, r.country, r.country_to, r.year_completed,
   r.architect, r.landscape_architect, r.artists, r.first_peoples_collaborators, r.client, r.summary, r.why_it_matters,
-  r.description, ...allFacetValues(r), ...(r.tags || []), ...(r.used_in || [])].join(" ").toLowerCase();
+  r.description, ...allFacetValues(r), ...(r.material_details || []), ...(r.tags || []), ...(r.used_in || [])].join(" ").toLowerCase();
 
 function matches(r, skip) {
   if (st.q) {
@@ -147,6 +148,7 @@ function renderLibrary() {
       ${c.facets.map(f => facetGroup(f.key, f.label, f.values, r => r.facets?.[f.key] || [])).join("")}
       ${facetGroup("status", "Status", c.status, r => [r.status])}
       <section class="fg open"><div class="fg-b"><label class="opt"><input type="checkbox" data-f="greenshoot" value="yes" ${(st.filters.greenshoot || []).length ? "checked" : ""}><span>Greenshoot projects only</span><em>${st.records.filter(r => r.greenshoot_project).length}</em></label></div></section>
+      <p class="small side-link"><a class="link" href="#/categories">See or add to the category lists</a></p>
     </aside>
     <section class="results">
       <form class="search" id="search">
@@ -225,8 +227,10 @@ function renderRecord(id) {
   if (!r) { view.innerHTML = `<div class="page"><p>${esc(id)} is not in the library. <a href="#/library">Back to the library</a></p></div>`; return; }
   const imgs = r.images || [];
   const p = primary(r);
-  const facetBlocks = st.cfg.facets.filter(f => (r.facets?.[f.key] || []).length).map(f =>
-    `<div class="fb"><h4>${esc(f.label)}</h4><div class="chips big">${r.facets[f.key].map(v => `<button data-filter="${f.key}" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div></div>`).join("");
+  const details = r.material_details || [];
+  const facetBlocks = st.cfg.facets.filter(f => (r.facets?.[f.key] || []).length || (f.key === "materials" && details.length)).map(f =>
+    `<div class="fb"><h4>${esc(f.label)}</h4><div class="chips big">${(r.facets[f.key] || []).map(v => `<button data-filter="${f.key}" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>
+    ${f.key === "materials" && details.length ? `<p class="mdetails">${details.map(d => `<a href="#/library" data-q="${esc(d)}">${esc(d)}</a>`).join(" · ")}</p>` : ""}</div>`).join("");
   const row = (k, v) => (v ? `<div><dt>${k}</dt><dd>${v}</dd></div>` : "");
   const link = s => { const m = String(s).match(/^(.*?),?\s*(https?:\/\/\S+)\s*$/); return m ? `<a href="${esc(m[2])}" target="_blank" rel="noopener">${esc(m[1] || m[2])}</a>` : esc(s); };
   view.innerHTML = `
@@ -276,6 +280,7 @@ function renderRecord(id) {
   </article>`;
   if (imgs.length) gallery(view.querySelector("#gal"), imgs, Math.max(0, imgs.indexOf(p)));
   view.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { st.filters = { [b.dataset.filter]: [b.dataset.v] }; st.q = ""; st.ask = null; location.hash = "#/library"; });
+  view.querySelectorAll("[data-q]").forEach(a => a.onclick = e => { e.preventDefault(); st.filters = {}; st.q = a.dataset.q; st.ask = null; location.hash = "#/library"; });
   document.getElementById("similar").onclick = () => runAsk({ similar: r.id }, `Similar to ${r.name}`);
   document.getElementById("edit").onclick = () => openEditor({ record: structuredClone(r), targetId: r.id });
   document.getElementById("addto").onclick = () => openAddTo(r);
@@ -569,6 +574,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   const el = document.createElement("form");
   el.className = "rf";
   let rec = record, target = targetId;
+  // New list values Groundwork suggested while drafting (shown above the categories, one click to add).
+  let suggest = (!targetId && item?.draft?.suggest) || [];
   // Images: existing ones on the record (keys) plus candidates from the inbox item (inbox upload keys or web urls).
   let pics = [], extra = [];   // extra: images added here with "Add images from a link"
   const setPics = () => {
@@ -579,7 +586,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   setPics();
   const c = st.cfg;
   const src = p => p.existing ? imgSrc(p.thumb_key) : p.key ? imgSrc(p.key) : p.url;
-  const field = f => `<label class="fl ${f.long ? "long" : ""}"><span>${esc(f.label)}${f.hint ? ` <em>${esc(f.hint)}</em>` : ""}</span>${f.long
+  const hintOf = f => (f.key === "summary" && rec.depth === "short" ? "one or two plain sentences: what, where, by whom, key material" : f.hint);
+  const field = f => `<label class="fl ${f.long ? "long" : ""}"><span>${esc(f.label)}${hintOf(f) ? ` <em>${esc(hintOf(f))}</em>` : ""}</span>${f.long
     ? `<textarea name="${f.key}" rows="${f.key === "description" ? 6 : 3}">${esc(rec[f.key] || "")}</textarea>`
     : `<input name="${f.key}" value="${esc(rec[f.key] || "")}">`}</label>`;
   const short = c.fields.filter(x => !x.long);
@@ -599,17 +607,25 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
         <div class="ipick" id="al-imgs" hidden></div>
         <div class="al-actions"><button type="button" class="link" id="al-cancel">Cancel</button><span></span><button type="button" class="btn primary" id="al-add">Add ticked images</button></div></div></div>
     </div>
-    <div class="rf-sec"><h3>Details</h3>
+    <div class="rf-sec"><h3>Details
+        <span class="seg depth" role="group" aria-label="How much to write"><button type="button" data-depth="short" class="${rec.depth === "short" ? "on" : ""}">Short record</button><button type="button" data-depth="full" class="${rec.depth !== "short" ? "on" : ""}">Full write-up</button></span></h3>
+      <p class="muted small depth-note">${rec.depth === "short" ? "Short: the facts, a sentence or two, images, categories and materials. For general design precedents." : "Full: summary, why it matters for Greenshoot and a description. For Greenshoot projects and First Peoples precedents."}</p>
       <div class="fl-grid">${short.map(field).join("")}
         <label class="fl"><span>Status</span><select name="status">${c.status.map(s => `<option ${s === rec.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
         <label class="fl"><span>Scale</span><select name="scale"><option value=""></option>${c.scale.map(s => `<option ${s === rec.scale ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       </div>
-      ${c.fields.filter(x => x.long).map(field).join("")}
+      ${field(c.fields.find(x => x.key === "summary"))}
+      ${rec.depth === "short"
+        ? `<details class="more-write"${rec.why_it_matters || rec.description ? " open" : ""}><summary>Why it matters and description (optional for a short record)</summary>${c.fields.filter(x => x.long && x.key !== "summary").map(field).join("")}</details>`
+        : c.fields.filter(x => x.long && x.key !== "summary").map(field).join("")}
       <div class="fillrow"><button type="button" class="btn" id="fill">✦ Check and fill online</button><span class="muted small" id="fill-msg">Groundwork searches the web, then checks every field against what it finds and the record's own text. You choose which changes to keep.</span></div>
       <div id="fill-out"></div>
     </div>
-    <div class="rf-sec"><h3>Categories <span class="muted small">Pick all that apply. These drive the library's filters.</span></h3>
-      ${c.facets.map(f => `<div class="facet"><h4>${esc(f.label)} <em>${esc(f.hint)}</em></h4><div class="tog">${f.values.map(v => `<label><input type="checkbox" name="f:${f.key}" value="${esc(v)}" ${(rec.facets?.[f.key] || []).includes(v) ? "checked" : ""}><span>${esc(v)}</span></label>`).join("")}</div></div>`).join("")}
+    <div class="rf-sec"><h3>Categories <span class="muted small">Pick all that apply. These drive the library's filters. Missing one? + Add to the list.</span></h3>
+      ${suggest.length ? `<div class="suggest">${suggest.map((x, n) => `<div><span>✦ Groundwork suggests a new ${esc(c.facets.find(f => f.key === x.facet)?.label || x.facet)} value: <b>${esc(x.value)}</b>. <span class="muted">${esc(x.reason)}</span></span>
+        <button type="button" class="btn" data-sug="${n}">Add it to the list</button><button type="button" class="link" data-nosug="${n}">Not needed</button></div>`).join("")}</div>` : ""}
+      ${c.facets.map(f => `<div class="facet"><h4>${esc(f.label)} <em>${esc(f.hint)}</em></h4><div class="tog">${f.values.map(v => `<label><input type="checkbox" name="f:${f.key}" value="${esc(v)}" ${(rec.facets?.[f.key] || []).includes(v) ? "checked" : ""}><span>${esc(v)}</span></label>`).join("")}<button type="button" class="addval" data-addval="${f.key}" title="Add a value to ${esc(f.label)} for everyone">+ Add</button></div>
+        ${f.key === "materials" ? `<label class="fl long mdet"><span>Specific materials <em>the exact materials and finishes, separated by commas (anything: "Corten steel, Spotted gum, Bluestone")</em></span><input name="material_details" list="mdet-list" value="${esc((rec.material_details || []).join(", "))}"><datalist id="mdet-list">${[...new Set(st.records.flatMap(r => r.material_details || []))].sort().map(d => `<option value="${esc(d)}">`).join("")}</datalist></label>` : ""}</div>`).join("")}
       <label class="fl long"><span>Tags <em>anything the categories don't cover, separated by commas</em></span><input name="tags" value="${esc((rec.tags || []).join(", "))}"></label>
     </div>
     <div class="rf-sec"><h3>Sources and Greenshoot use</h3>
@@ -641,9 +657,27 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     if (topHTML) { el.querySelector("#prop-top").innerHTML = topHTML; wireProposals(el.querySelector("#prop-top"), topAns); }
     el.querySelector("#fill").onclick = fillGaps;
     wireAddLink();
+    el.querySelectorAll("[data-depth]").forEach(b => b.onclick = () => { sync(); rec = { ...rec, depth: b.dataset.depth }; keepScroll(draw); });
+    el.querySelectorAll("[data-addval]").forEach(b => b.onclick = () => addValue(b.dataset.addval));
+    el.querySelectorAll("[data-sug]").forEach(b => b.onclick = () => { const x = suggest[+b.dataset.sug]; suggest = suggest.filter(y => y !== x); addValue(x.facet, x.value); });
+    el.querySelectorAll("[data-nosug]").forEach(b => b.onclick = () => { sync(); suggest = suggest.filter((_, n) => n !== +b.dataset.nosug); keepScroll(draw); });
     // Flag images too small to use well (under 800 px both ways), so a better copy can be found before approving.
     el.querySelectorAll(".pic-img img").forEach(im => { const flag = () => { if (im.naturalWidth && im.naturalWidth < 800 && im.naturalHeight < 800) im.insertAdjacentHTML("afterend", `<span class="lowres" title="${im.naturalWidth}×${im.naturalHeight} px">Low res</span>`); }; im.complete ? flag() : im.addEventListener("load", flag, { once: true }); });
   };
+  // Add a value to a category list for everyone (e.g. a new Materials group), and tick it on this record.
+  async function addValue(facet, value) {
+    const f = c.facets.find(x => x.key === facet);
+    if (value == null) value = prompt(`New value for ${f.label} (for everyone).\nCheck the list first: is it really missing?`);
+    if (!value || !value.trim()) return;
+    sync();
+    try {
+      const out = await api("/api/categories", { method: "POST", body: { facet, value: value.trim() } });
+      st.cfg.facets = out.facets;
+      rec = { ...rec, facets: { ...rec.facets, [facet]: [...new Set([...(rec.facets?.[facet] || []), out.value])] } };
+      keepScroll(draw);
+      toast(`"${out.value}" is in the ${f.label} list now, and ticked here.`);
+    } catch (e) { toast(`Couldn't add it: ${e.message}`); }
+  }
   // Keep what's been typed when the form redraws.
   const sync = () => { if (el.querySelector("[name=name]")) rec = { ...rec, ...read() }; };
 
@@ -678,7 +712,9 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
 
   const read = () => {
     const fd = new FormData(el), o = {};
-    for (const f of c.fields) o[f.key] = (fd.get(f.key) || "").trim();
+    o.depth = rec.depth === "short" ? "short" : "full";
+    o.material_details = String(fd.get("material_details") || "").split(",").map(s => s.trim()).filter(Boolean);
+    for (const f of c.fields) o[f.key] = (fd.has(f.key) ? fd.get(f.key) : rec[f.key] || "").trim();
     o.status = fd.get("status"); o.scale = fd.get("scale");
     o.facets = Object.fromEntries(c.facets.map(f => [f.key, fd.getAll("f:" + f.key)]));
     o.tags = String(fd.get("tags") || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -720,7 +756,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     const facetLabel = k => c.facets.find(f => f.key === k)?.label || k;
     const addF = Object.entries(ans.add_facets || {});
     const urlIn = s => (String(s).match(/https?:\/\/\S+/) || [])[0];
-    const any = ans.changes.length || addF.length || ans.add_tags.length || ans.add_sources.length;
+    const any = ans.changes.length || addF.length || ans.add_tags.length || ans.add_sources.length || (ans.add_material_details || []).length;
     if (!any) return `<p class="muted small">${ans.caveats ? esc(ans.caveats) : "Nothing to add or change."}</p>`;
     return `<div class="fill-box">
       ${ans.changes.length ? `<table class="chg"><thead><tr><th></th><th>Field</th><th>Now</th><th>Suggested</th><th>Why</th></tr></thead><tbody>
@@ -729,6 +765,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
           <td class="small">${esc(ch.reason)} ${urlIn(ch.source) ? `<a href="${esc(urlIn(ch.source))}" target="_blank" rel="noopener">source</a>` : `<span class="muted">(${esc(ch.source)})</span>`}</td></tr>`).join("")}
       </tbody></table>` : ""}
       ${addF.map(([k, vs]) => `<div><b>Add to ${esc(facetLabel(k))}:</b> ${vs.map(v => `<label class="inl"><input type="checkbox" data-fac="${esc(k)}" value="${esc(v)}" checked> ${esc(v)}</label>`).join(" ")}</div>`).join("")}
+      ${(ans.add_material_details || []).length ? `<div><b>Add specific materials:</b> ${ans.add_material_details.map(t => `<label class="inl"><input type="checkbox" data-mdet value="${esc(t)}" checked> ${esc(t)}</label>`).join(" ")}</div>` : ""}
       ${ans.add_tags.length ? `<div><b>Add tags:</b> ${ans.add_tags.map(t => `<label class="inl"><input type="checkbox" data-tag value="${esc(t)}" checked> ${esc(t)}</label>`).join(" ")}</div>` : ""}
       ${ans.add_sources.length ? `<div><b>Add sources:</b> ${ans.add_sources.map(s => `<label class="inl"><input type="checkbox" data-src value="${esc(s)}" checked> ${esc(s)}</label>`).join(" ")}</div>` : ""}
       ${ans.caveats ? `<div class="muted">${esc(ans.caveats)}</div>` : ""}
@@ -741,6 +778,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       box.querySelectorAll("[data-chg]:checked").forEach(x => { const ch = ans.changes[+x.dataset.chg]; cur[ch.field] = ch.value; });
       box.querySelectorAll("[data-fac]:checked").forEach(x => { cur.facets[x.dataset.fac] = [...new Set([...(cur.facets[x.dataset.fac] || []), x.value])]; });
       box.querySelectorAll("[data-tag]:checked").forEach(x => { if (!cur.tags.includes(x.value)) cur.tags.push(x.value); });
+      box.querySelectorAll("[data-mdet]:checked").forEach(x => { if (!cur.material_details.some(d => d.toLowerCase() === x.value.toLowerCase())) cur.material_details.push(x.value); });
       box.querySelectorAll("[data-src]:checked").forEach(x => { if (!cur.sources.includes(x.value)) cur.sources.push(x.value); });
       if (box.id === "prop-top") topHTML = "";
       rec = { ...rec, ...cur }; keepScroll(draw); toast("Changes added. Check them over before saving.");
@@ -828,7 +866,9 @@ function tidyCheck(out, record) {
   }
   const add_tags = [...new Set((out.add_tags || []).map(t => String(t).toLowerCase().trim()))].filter(t => t && !(record.tags || []).includes(t));
   const add_sources = [...new Set(out.add_sources || [])].filter(x => x && !(record.sources || []).includes(x));
-  return { summary: out.summary || "", changes, add_facets, add_tags, add_sources, caveats: out.caveats || "" };
+  const haveM = (record.material_details || []).map(d => d.toLowerCase());
+  const add_material_details = [...new Set(out.add_material_details || [])].filter(d => d && !haveM.includes(String(d).toLowerCase()));
+  return { summary: out.summary || "", changes, add_facets, add_tags, add_sources, add_material_details, caveats: out.caveats || "" };
 }
 
 function openEditor({ record, targetId }) {
@@ -889,6 +929,39 @@ function renderAdd() {
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";
   };
+}
+
+// ---------- categories (#/categories): the lists, and adding to them ----------
+async function renderCategories() {
+  view.innerHTML = `<div class="page"><p class="muted">Loading the lists...</p></div>`;
+  try { st.cfg.facets = (await api("/api/categories")).facets; } catch (e) { toast(e.message); }
+  const used = (k, v) => st.records.filter(r => (r.facets?.[k] || []).includes(v)).length;
+  const details = {};
+  st.records.forEach(r => (r.material_details || []).forEach(d => { details[d] = (details[d] || 0) + 1; }));
+  view.innerHTML = `<div class="page cats">
+    <a class="link" href="#/library">← Library</a>
+    <h1>Categories</h1>
+    <p class="muted">The lists every precedent is sorted by. Anyone can add a value when something genuinely doesn't fit
+      (Groundwork also suggests new ones while drafting). Keep values broad and in the same style: the exact material or
+      technique goes in the precedent's specific materials or tags. A value you added can be removed while no precedent uses it.</p>
+    ${st.cfg.facets.map(f => `<section class="cat"><h3>${esc(f.label)} <em class="muted small">${esc(f.hint)}</em></h3>
+      <div class="chips">${f.values.map(v => { const a = (f.added || []).find(x => x.value === v), n = used(f.key, v);
+        return `<span class="chip ${a ? "added" : ""}" title="${a ? `Added by ${esc(a.by || "someone")}${a.at ? `, ${fmtDate(a.at)}` : ""}` : "In the base list"}">${esc(v)} <span class="muted">${n}</span>${a && !n ? ` <button type="button" class="x" data-del="${f.key}" data-v="${esc(v)}" title="Remove">×</button>` : ""}</span>`; }).join("")}</div>
+      <form class="addv" data-facet="${f.key}"><input placeholder="New ${esc(f.label.toLowerCase())} value" maxlength="60"><button class="btn">Add</button></form>
+      ${f.key === "materials" && Object.keys(details).length ? `<p class="small"><b>Specific materials in use:</b> ${Object.entries(details).sort((a, b) => a[0].localeCompare(b[0])).map(([d, n]) => `${esc(d)} <span class="muted">${n}</span>`).join(" · ")}</p>` : ""}
+    </section>`).join("")}
+  </div>`;
+  view.querySelectorAll(".addv").forEach(fm => fm.onsubmit = async e => {
+    e.preventDefault();
+    const v = fm.querySelector("input").value.trim();
+    if (!v) return;
+    try { const out = await api("/api/categories", { method: "POST", body: { facet: fm.dataset.facet, value: v } }); st.cfg.facets = out.facets; toast(`Added "${out.value}"`); renderCategories(); }
+    catch (err) { toast(err.message); }
+  });
+  view.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    try { const out = await api("/api/categories", { method: "DELETE", body: { facet: b.dataset.del, value: b.dataset.v } }); st.cfg.facets = out.facets; toast("Removed"); renderCategories(); }
+    catch (err) { toast(err.message); }
+  });
 }
 
 // ---------- admin (#/admin): image storage ----------

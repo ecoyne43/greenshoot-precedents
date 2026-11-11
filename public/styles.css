@@ -286,3 +286,22 @@ body.capture { background: var(--paper); }
 @media (max-width: 560px) { .urlrow { flex-direction: column; align-items: stretch; } }
 .al-actions { display: flex; justify-content: space-between; align-items: center; }
 .lowres { position: absolute; left: 6px; bottom: 6px; font: .64rem var(--mono); background: #8a2b2b; color: #fff; padding: 1px 5px; border-radius: 2px; }
+
+/* Record depth, specific materials, adding to the category lists */
+.rf-sec h3 .seg.depth { margin-left: 12px; vertical-align: middle; }
+.depth-note { margin: -4px 0 10px; }
+.more-write { margin: 6px 0 4px; } .more-write summary { cursor: pointer; font-size: .85rem; color: var(--accent); margin-bottom: 8px; }
+.addval { border: 1px dashed var(--line); background: none; border-radius: 14px; padding: 3px 10px; font: inherit; font-size: .78rem; color: var(--accent); cursor: pointer; }
+.addval:hover { border-color: var(--accent); }
+.mdet { margin-top: 8px; }
+.mdetails { margin: 6px 0 0; font-size: .85rem; } .mdetails a { color: inherit; text-decoration: underline dotted; }
+.suggest { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.suggest > div { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-radius: 8px; background: #fbf3e2; border: 1px solid #ecd7a8; font-size: .86rem; }
+.suggest > div > span { flex: 1; min-width: 240px; }
+.side-link { margin: 14px 0 0; }
+.cats .cat { padding: 14px 0; border-top: 1px solid var(--line); }
+.cats .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.cats .chip { border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; font-size: .84rem; background: var(--card); }
+.cats .chip.added { border-color: var(--accent); }
+.cats .chip .x { border: 0; background: none; cursor: pointer; color: #8a2b2b; font-size: 1rem; line-height: 1; padding: 0 0 0 2px; }
+.addv { display: flex; gap: 6px; max-width: 420px; } .addv input { flex: 1; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }

@@ -18,7 +18,7 @@ Object.assign(process.env, {
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image", "page-images": "page-images" };
+  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image", "page-images": "page-images", categories: "categories" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -42,7 +42,10 @@ function fakeClaude(body) {
       status: "Built", scale: "Building",
       facets: { project_type: ["Park + Open Space"], design_element: ["Shelter + Pavilion", "Screen", "Roof + Ceiling + Soffit"],
         cultural_expression: ["Pattern + Graphics"], dwc_themes: ["Gathering Place", "Ceremony"], environment: ["Wetlands"],
-        materials: ["Timber", "Fibre + Weaving"], programme: ["Public Programs + Events"], involvement: ["Not documented"] },
+        materials: ["Timber", "Fibre + Weaving"], medium: ["Weaving + Fibre Art"], programme: ["Public Programs + Events"],
+        involvement: [text.includes("co-design test") ? "Co-designed with Traditional Owners" : "Not documented"] },
+      material_details: text.includes("Spotted gum") ? ["Spotted gum", "Woven sedge"] : ["Spotted Gum", "Woven sedge"],
+      suggest_values: text.includes("suggest test") ? [{ facet: "materials", value: "Shell + Bone", reason: "The screens are made mainly of shell." }, { facet: "materials", value: "timber", reason: "duplicate, should be dropped" }] : [],
       tags: ["fish trap", "fire pit", "coastal"], sources: [],
       images: Array.from({ length: nImages }, (_, n) => ({ image_type: n === 1 ? "Aerial" : n === 2 ? "Detail" : "Photo", caption: `View ${n + 1} of the pavilion`, keep: n !== 3, credit: "Example Studio" })),
       confidence: "medium", notes: "The page does not say who the Traditional Owners are or how they were involved.",

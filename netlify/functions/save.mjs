@@ -8,6 +8,7 @@
 import { requireAuth, json, handle, userName } from "../lib/server.mjs";
 import { store } from "../lib/blobs.mjs";
 import { readLibrary, writeLibrary, cleanRecord, nextId } from "../lib/library.mjs";
+import { getFacets } from "../lib/categories.mjs";
 
 const UP = /^up\/img_[a-z0-9]+\.jpg$/;
 
@@ -17,7 +18,7 @@ export default handle(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   const me = userName(req);
   const body = await req.json().catch(() => ({}));
-  const rec = cleanRecord(body.record || {});
+  const rec = cleanRecord(body.record || {}, await getFacets());
   if (!rec.name) return json({ error: "Give the precedent a name" }, 400);
 
   const box = store("inbox");

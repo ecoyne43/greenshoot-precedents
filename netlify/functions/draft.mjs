@@ -5,7 +5,9 @@ import { requireAuth, json, handle, claude, safeUrl, BROWSER_HEADERS } from "../
 import { store } from "../lib/blobs.mjs";
 import { pageMeta } from "../lib/pagemeta.mjs";
 import { readLibrary, cleanRecord, findDuplicates, shortLine } from "../lib/library.mjs";
-import { DRAFT_RULES, DRAFT_SCHEMA } from "../lib/prompts.mjs";
+import { draftRules, draftSchema } from "../lib/prompts.mjs";
+import { getFacets } from "../lib/categories.mjs";
+import { isFirstPeoples } from "../lib/vocab.mjs";
 import { fetchImage } from "../lib/fetchimage.mjs";
 
 const OK_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -65,15 +67,21 @@ export default handle(async (req) => {
     `There are ${seen.length} image(s), in order.`,
   ].filter(Boolean).join("\n\n");
 
-  const { records } = await readLibrary();
+  const [{ records }, F] = await Promise.all([readLibrary(), getFacets()]);
   const library = records.length ? `\n\nLIBRARY (already in it):\n${records.map(shortLine).join("\n").slice(0, 200000)}` : "\n\nLIBRARY: (empty)";
+  const details = [...new Set(records.flatMap(r => r.material_details || []))].slice(0, 400);
+  const detailText = `\n\nEXISTING SPECIFIC MATERIALS: ${details.join("; ") || "(none yet)"}`;
   const content = [
     ...seen.map(i => ({ type: "image", source: { type: "base64", media_type: i.type, data: i.data } })),
-    { type: "text", text: text + library + "\n\nDraft the precedent record." },
+    { type: "text", text: text + (chosen.length ? "\n\nThe sender chose these images themselves." : "") + library + detailText + "\n\nDraft the precedent record." },
   ];
-  const out = await claude({ system: DRAFT_RULES, content, schema: DRAFT_SCHEMA, maxTokens: 6000 });
+  const out = await claude({ system: draftRules(F), content, schema: draftSchema(F), maxTokens: 6000 });
 
-  const record = cleanRecord(out);
+  // Full write-up for First Peoples precedents and Greenshoot projects; a short record for the rest (the reviewer can
+  // switch it). A short record never keeps a long write-up Groundwork wrote anyway.
+  const greenshoot = /greenshoot/i.test(`${item.note} ${out.first_peoples_collaborators} ${out.other_team} ${out.architect}`);
+  const record = cleanRecord({ ...out, greenshoot_project: false, depth: isFirstPeoples(out) || greenshoot ? "full" : "short" }, F);
+  if (record.depth === "short") { record.why_it_matters = ""; record.description = ""; }
   if (item.url && !record.sources.some(x => x.includes(item.url))) record.sources.unshift(`${meta?.title || item.title || item.url}, ${item.url}`);
   item.draft = {
     record,
@@ -90,6 +98,9 @@ export default handle(async (req) => {
     }))],
     duplicates: item.target ? [] : findDuplicates(record, records, (out.same_as || []).filter(m => m.id !== item.target)),
     confidence: out.confidence || "medium", notes: out.notes || "",
+    // New list values Groundwork thinks are needed (the reviewer can add them with one click).
+    suggest: (out.suggest_values || []).filter(x => F.some(f => f.key === x.facet) && x.value
+      && !F.find(f => f.key === x.facet).values.some(v => v.toLowerCase() === String(x.value).toLowerCase())).slice(0, 3),
     read_page: !!meta, drafted: new Date().toISOString(),
   };
   await box.setJSON(item.id, item);

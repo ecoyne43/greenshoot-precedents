@@ -51,7 +51,7 @@ const designers = r => [r.architect, r.landscape_architect, r.artists].filter(Bo
 const primary = r => (r.images || []).find(i => i.primary) || (r.images || [])[0];
 const hay = r => [r.id, r.name, r.also_known_as, r.location_text, r.city, r.state, r.country, r.country_to, r.year_completed,
   r.architect, r.landscape_architect, r.artists, r.first_peoples_collaborators, r.client, r.summary, r.description,
-  ...Object.values(r.facets || {}).flat(), ...(r.tags || [])].join(" ").toLowerCase();
+  ...Object.values(r.facets || {}).flat(), ...(r.material_details || []), ...(r.tags || [])].join(" ").toLowerCase();
 const safe = s => String(s || "").replace(/[\\/:*?"<>|#%]+/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 const folderFor = r => `${r.id} ${safe(r.name)}`;
 const fileFor = (im, n) => `${String(n + 1).padStart(2, "0")} ${safe(im.image_type)}${im.caption ? " - " + safe(im.caption) : ""}.jpg`;

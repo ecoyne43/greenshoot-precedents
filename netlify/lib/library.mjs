@@ -1,10 +1,11 @@
 // The library file (precedents.json in the data repo): { records: [...] }. One record per precedent.
 import { readJSON, writeJSON, DATA_PATH, tidy } from "./server.mjs";
-import { FACETS, TEXT_FIELDS, STATUS, SCALE, IMAGE_TYPES, ID_PREFIX } from "./vocab.mjs";
+import { FACETS, TEXT_FIELDS, STATUS, SCALE, IMAGE_TYPES, ID_PREFIX, aliasFacets, aliasRecord, isFirstPeoples } from "./vocab.mjs";
 
 export async function readLibrary() {
   const { data, sha } = await readJSON(DATA_PATH(), { records: [] });
-  return { records: Array.isArray(data?.records) ? data.records : [], sha };
+  const records = (Array.isArray(data?.records) ? data.records : []).map(aliasRecord);
+  return { records, sha };
 }
 
 export async function writeLibrary(records, sha, message) {
@@ -34,14 +35,21 @@ const list = (v, allowed) => {
 };
 const pick = (v, allowed) => allowed.find(a => a.toLowerCase() === String(v || "").toLowerCase()) || "";
 
-// Clean a record from the browser or from Claude: known fields only, facet values only from the lists.
-export function cleanRecord(r = {}) {
+// Clean a record from the browser or from Claude: known fields only, facet values only from the lists (pass the
+// lists with the team's added values, from getFacets()).
+export function cleanRecord(r = {}, facets = FACETS) {
+  r = aliasRecord(r);
   const o = {};
   for (const f of TEXT_FIELDS) o[f.key] = tidy(String(r[f.key] ?? "")).slice(0, f.long ? 6000 : 400);
   o.status = pick(r.status, STATUS) || "Built";
   o.scale = pick(r.scale, SCALE);
   o.facets = {};
-  for (const f of FACETS) o.facets[f.key] = list(r.facets?.[f.key], f.values);
+  const given = aliasFacets(r.facets || {});
+  for (const f of facets) o.facets[f.key] = list(given[f.key], f.values);
+  // The exact materials and finishes, as written ("Corten steel", "Spotted gum"): any value.
+  o.material_details = list(r.material_details).map(x => x.slice(0, 60)).slice(0, 20);
+  // full: the whole write-up; short: facts, a sentence or two, images and categories. Older records are full.
+  o.depth = r.depth === "short" ? "short" : r.depth === "full" ? "full" : (r.depth === "auto" ? (isFirstPeoples({ ...r, facets: o.facets }) ? "full" : "short") : "full");
   o.tags = list(r.tags).map(t => t.toLowerCase()).slice(0, 30);
   o.sources = list(r.sources).slice(0, 30);
   o.greenshoot_project = !!r.greenshoot_project;
@@ -89,7 +97,7 @@ export const shortLine = r => `${r.id} | ${r.name}${r.also_known_as ? ` (also ${
 
 // A short line per record for Claude to search over (Ask the library, Find similar).
 export function indexLine(r) {
-  const facets = Object.values(r.facets || {}).flat().join(", ");
+  const facets = [...Object.values(r.facets || {}).flat(), ...(r.material_details || [])].join(", ");
   const place = [r.city, r.state, r.country].filter(Boolean).join(", ");
   const who = [r.architect, r.landscape_architect, r.artists].filter(Boolean).join("; ");
   return `${r.id} | ${r.name} | ${place} | ${r.country_to || ""} | ${r.year_completed || ""} | ${who} | ${facets} | ${(r.tags || []).join(", ")} | ${(r.summary || "").slice(0, 260)}`;
@@ -104,7 +112,9 @@ export const attribution = (r, by, approver) => {
 export function recordText(r = {}) {
   const lines = TEXT_FIELDS.map(f => `${f.key} (${f.label}): ${r[f.key] || "(empty)"}`);
   lines.push(`status: ${r.status || "(empty)"}`, `scale: ${r.scale || "(empty)"}`);
+  lines.push(`depth: ${r.depth === "short" ? "short (facts and one or two sentences, no long write-up)" : "full"}`);
   for (const f of FACETS) lines.push(`categories, ${f.label}: ${(r.facets?.[f.key] || []).join("; ") || "(none)"}`);
+  lines.push(`specific materials: ${(r.material_details || []).join(", ") || "(none)"}`);
   lines.push(`tags: ${(r.tags || []).join(", ") || "(none)"}`, `sources: ${(r.sources || []).join(" | ") || "(none)"}`);
   const caps = (r.images || []).map(i => i.caption).filter(Boolean);
   if (caps.length) lines.push(`image captions: ${caps.join(" | ")}`);

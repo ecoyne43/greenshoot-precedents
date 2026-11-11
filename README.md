@@ -29,6 +29,7 @@ changes here can never break the live map tool.
 | `/api/ask` | Ask Groundwork, Find similar, find precedents for a brief |
 | `/api/research` | Check and fill online, step 1: web search for the precedent (can look at its images), streamed notes |
 | `/api/check` | Check and fill online, step 2: compares every field with the notes and the record's own text, proposes changes with reasons and sources |
+| `/api/categories` | the category lists with the team's additions (`categories.json` in the data repo); add or remove a value |
 | `/api/page-images` | every likely photo on a web page, for the image picker ("Get images", "Add images from a link") |
 | `/api/img`, `/api/proxy-image` | serve stored images; fetch web images for the browser to shrink |
 
@@ -70,7 +71,8 @@ python3 dev/extension_test.py http://localhost:8899 <screenshot folder>
 Re-seed before each test run (the test adds PR-0010).
 
 ## Changing the categories
-Edit `netlify/lib/vocab.mjs`. Adding a value is safe. Renaming or removing one: existing records keep the old value
+Anyone can add a value from the site (Categories page, or + Add in the form); those live in `categories.json` in
+the data repo. To change the base lists, edit `netlify/lib/vocab.mjs` (renames go in `ALIASES` there). Adding a value is safe. Renaming or removing one: existing records keep the old value
 until they are edited (it is dropped on save), so rename it in `precedents.json` too in the same change.
 
 ## Rules

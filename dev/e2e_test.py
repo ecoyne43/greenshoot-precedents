@@ -284,6 +284,40 @@ with sync_playwright() as p:
     pg.goto(BASE + "/#/admin"); pg.wait_for_selector(".admin")
     check(("Cloudflare is set up" if r2_on() else "Images are in Netlify") in pg.inner_text(".admin") and len(pg.inner_text("code.tok")) == 32, "admin page shows storage and the Worker key")
 
+    # a general precedent: a SHORT record (no write-up), specific materials, and a new list value Groundwork suggests
+    item7 = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "note": "suggest test, a shell screen", "from": "web"})["item"]
+    post("/api/draft", {"id": item7["id"]})
+    pg.goto(BASE + f"/#/inbox/{item7['id']}"); pg.wait_for_selector("#form-host .rf", timeout=60000)
+    check(pg.locator("[data-depth=short].on").count() == 1, "no First Peoples involvement: drafted as a short record")
+    check(pg.locator(".more-write[open]").count() == 0 and pg.input_value('textarea[name="description"]') == "", "short: no description, write-up tucked away")
+    check(pg.input_value('input[name="material_details"]') == "Spotted Gum, Woven sedge", "specific materials drafted")
+    check(pg.locator(".suggest > div").count() == 1 and "Shell + Bone" in pg.inner_text(".suggest"), "Groundwork suggests a new Materials value (not a duplicate)")
+    pg.screenshot(path=f"{OUT}/18_short_record.png", full_page=True)
+    pg.click("[data-sug='0']"); pg.wait_for_selector("input[name='f:materials'][value='Shell + Bone']")
+    check(pg.locator("input[name='f:materials'][value='Shell + Bone']").is_checked(), "added to the list and ticked")
+    cats = json.load(open(f"{RUN}/data/categories.json"))
+    check(any(x["value"] == "Shell + Bone" and x["by"] == "Ed" for x in cats["added"]["materials"]), "saved to categories.json, with who added it")
+    pg.fill('input[name="material_details"]', "Spotted Gum, Woven sedge, Abalone shell")
+    pg.click("[data-depth=full]"); check(pg.locator('textarea[name="why_it_matters"]').is_visible(), "switching to Full shows the write-up fields")
+    check(pg.input_value('input[name="material_details"]').endswith("Abalone shell"), "typing survives the switch")
+    pg.click("[data-depth=short]")
+    pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=60000)
+    newest = [r for r in recs().values() if r["name"] == "Tidewater Weaving Pavilion"][-1]
+    check(newest["depth"] == "short" and "Shell + Bone" in newest["facets"]["materials"] and "Abalone shell" in newest["material_details"], "saved short, with the new value and specific materials")
+    check("Abalone shell" in pg.inner_text(".rec"), "specific materials shown on the precedent")
+    # old values renamed: Steel is now Metal, with Steel kept as a specific material
+    r1 = [r for r in json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/library", headers={"x-app-password": "test"})))["records"] if "Metal" in r["facets"].get("materials", [])]
+    check(r1 and all("Steel" in r["material_details"] for r in r1), f"Steel read as Metal, Steel kept as a specific material ({len(r1)})")
+    # the Categories page: see the lists, add a value, remove an unused one
+    pg.goto(BASE + "/#/categories"); pg.wait_for_selector(".cats .cat")
+    check("Medium + technique" in pg.inner_text(".cats") and pg.locator(".chip.added:has-text('Shell + Bone')").count() == 1, "Categories page lists everything, added values marked")
+    pg.locator(".addv[data-facet=medium] input").fill("Neon"); pg.locator(".addv[data-facet=medium] button").click()
+    pg.wait_for_selector(".chip.added:has-text('Neon')")
+    pg.locator(".chip:has-text('Neon') .x").click(); pg.wait_for_timeout(600)
+    check(pg.locator(".chip:has-text('Neon')").count() == 0, "an unused added value can be removed")
+    check(pg.locator(".chip:has-text('Shell + Bone') .x").count() == 0, "a value in use can't be removed")
+    pg.screenshot(path=f"{OUT}/19_categories.png", full_page=True)
+
     # phone width
     ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)
     ph.goto(BASE + "/"); ph.evaluate("localStorage.setItem('gp_pw','test'); localStorage.setItem('gp_name','Ed')"); ph.goto(BASE + "/#/library"); ph.reload()
