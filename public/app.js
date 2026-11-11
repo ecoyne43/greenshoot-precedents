@@ -242,10 +242,7 @@ function renderRecord(id) {
       <h1>${esc(r.name)}</h1>
       <p class="sub">${esc(place(r))}${r.year_completed ? ` · ${esc(r.year_completed)}` : ""}${r.status && r.status !== "Built" ? ` · ${esc(r.status)}` : ""}</p>
     </header>
-    ${imgs.length ? `<div class="gallery">
-      <figure class="g-main">${img(p.key)}<figcaption>${esc(p.caption)}${p.credit ? ` <span class="muted">Image: ${esc(p.credit)}</span>` : ""}</figcaption></figure>
-      ${imgs.length > 1 ? `<div class="g-thumbs">${imgs.map((i, n) => `<button data-img="${n}" class="${i === p ? "on" : ""}" title="${esc(i.image_type)}">${img(i.thumb_key)}<span>${esc(i.image_type)}</span></button>`).join("")}</div>` : ""}
-    </div>` : ""}
+    ${imgs.length ? `<section class="gal" id="gal"></section>` : ""}
     <div class="rec-cols">
       <div class="rec-main">
         ${r.summary ? `<p class="lead">${esc(r.summary)}</p>` : ""}
@@ -277,13 +274,8 @@ function renderRecord(id) {
       </aside>
     </div>
   </article>`;
-  view.querySelectorAll("[data-img]").forEach(b => b.onclick = () => {
-    const i = imgs[+b.dataset.img];
-    view.querySelector(".g-main").innerHTML = `${img(i.key)}<figcaption>${esc(i.caption)}${i.credit ? ` <span class="muted">Image: ${esc(i.credit)}</span>` : ""}</figcaption>`;
-    view.querySelectorAll("[data-img]").forEach(x => x.classList.toggle("on", x === b));
-  });
+  if (imgs.length) gallery(view.querySelector("#gal"), imgs, Math.max(0, imgs.indexOf(p)));
   view.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { st.filters = { [b.dataset.filter]: [b.dataset.v] }; st.q = ""; st.ask = null; location.hash = "#/library"; });
-  view.querySelector(".g-main")?.addEventListener("click", e => { if (e.target.tagName === "IMG") window.open(e.target.src, "_blank", "noopener"); });
   document.getElementById("similar").onclick = () => runAsk({ similar: r.id }, `Similar to ${r.name}`);
   document.getElementById("edit").onclick = () => openEditor({ record: structuredClone(r), targetId: r.id });
   document.getElementById("addto").onclick = () => openAddTo(r);
@@ -365,6 +357,46 @@ function photoPicker(drop, input, list) {
   const stop = () => document.removeEventListener("paste", onPaste);
   document.addEventListener("paste", onPaste);
   return { files: () => files, webImgs: () => webImgs, count: () => files.length + webImgs.length, stop, clear() { files = []; webImgs = []; show(); } };
+}
+
+// A precedent's images, seen three ways (the choice is remembered): Carousel (one large, ‹ › or arrow keys, a strip of
+// every image below), Grid (all at once; click one to see it large) or List (each large, with its caption).
+function gallery(box, imgs, cur = 0) {
+  let mode = "carousel";
+  try { mode = localStorage.getItem("gp_gallery") || "carousel"; } catch {}
+  const cap = i => `${i.image_type ? `<b>${esc(i.image_type)}</b> ` : ""}${esc(i.caption)}${i.credit ? ` <span class="muted">Image: ${esc(i.credit)}</span>` : ""}`;
+  const big = i => imgSrc(i.key), small = i => imgSrc(i.thumb_key || i.key);
+  const draw = () => {
+    const n = imgs.length, i = imgs[cur];
+    const bar = `<div class="gal-bar"><span class="muted">${n} image${n === 1 ? "" : "s"}</span>${n > 1 ? `<div class="seg" role="group" aria-label="Show images as">
+      ${[["carousel", "Carousel"], ["grid", "Grid"], ["list", "List"]].map(([k, t]) => `<button type="button" data-mode="${k}" class="${mode === k ? "on" : ""}">${t}</button>`).join("")}</div>` : ""}</div>`;
+    if (mode === "grid" && n > 1) {
+      box.innerHTML = bar + `<div class="gal-grid">${imgs.map((x, k) => `<button type="button" data-go="${k}" title="${esc(x.caption || x.image_type)}"><img src="${esc(small(x))}" alt="${esc(x.caption)}" loading="lazy"><span>${esc(x.image_type)}</span></button>`).join("")}</div>`;
+    } else if (mode === "list" && n > 1) {
+      box.innerHTML = bar + `<div class="gal-list">${imgs.map((x, k) => `<figure><img src="${esc(big(x))}" alt="${esc(x.caption)}" loading="lazy" data-full="${k}"><figcaption><span class="muted">${k + 1} of ${n}</span> ${cap(x)}</figcaption></figure>`).join("")}</div>`;
+    } else {
+      box.innerHTML = bar + `<div class="gal-car">
+        <figure class="g-main"><img src="${esc(big(i))}" alt="${esc(i.caption)}" data-full="${cur}">
+          ${n > 1 ? `<button type="button" class="gnav prev" data-step="-1" title="Previous (←)">‹</button><button type="button" class="gnav next" data-step="1" title="Next (→)">›</button><span class="gcount">${cur + 1} / ${n}</span>` : ""}
+          <figcaption>${cap(i)}</figcaption></figure>
+        ${n > 1 ? `<div class="g-strip">${imgs.map((x, k) => `<button type="button" data-go="${k}" class="${k === cur ? "on" : ""}" title="${esc(x.image_type)}"><img src="${esc(small(x))}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}</div>`;
+      box.querySelector(".g-strip .on")?.scrollIntoView({ block: "nearest", inline: "center" });
+    }
+    box.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { mode = b.dataset.mode; try { localStorage.setItem("gp_gallery", mode); } catch {} draw(); });
+    box.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { cur = +b.dataset.go; mode = "carousel"; draw(); if (b.closest(".gal-grid")) box.scrollIntoView({ block: "start", behavior: "smooth" }); });
+    box.querySelectorAll("[data-step]").forEach(b => b.onclick = () => step(+b.dataset.step));
+    box.querySelectorAll("[data-full]").forEach(im => im.onclick = () => window.open(big(imgs[+im.dataset.full]), "_blank", "noopener"));
+  };
+  const step = d => { cur = (cur + d + imgs.length) % imgs.length; draw(); };
+  // Arrow keys go through the images while this precedent is open (not while typing or with a window open).
+  const onKey = e => {
+    if (!document.body.contains(box)) return document.removeEventListener("keydown", onKey);
+    if (mode !== "carousel" || imgs.length < 2 || e.target.closest("input, textarea, select") || document.querySelector("#modal:not([hidden])")) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
+  };
+  document.addEventListener("keydown", onKey);
+  draw();
 }
 
 // Image picker: reads a web page and shows every photo on it in a grid; tick the ones you want. Tiny images (icons,

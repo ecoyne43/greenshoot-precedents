@@ -91,13 +91,13 @@ with sync_playwright() as p:
     # approve
     pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=20000)
     check("Tidewater" in pg.locator(".rec-h h1").inner_text(), "approved record opens")
-    check(pg.locator(".g-thumbs button").count() == 3, f"3 images saved (got {pg.locator('.g-thumbs button').count()})")
+    check(pg.locator(".g-strip button").count() == 3, f"3 images saved (got {pg.locator('.g-strip button').count()})")
     attrib = pg.locator(".attrib").inner_text()
     check("Sent by Jez" in attrib and "approved by Ed" in attrib, "attribution: sent by Jez, approved by Ed")
     if r2_on():
         puts = [l for l in json.load(urllib.request.urlopen(BASE + "/__r2")) if l.startswith("PUT 201 /up/")]
         check(len(puts) >= 6, f"approved images stored at Cloudflare ({len(puts)} files)")
-        check(all("/fake-r2/" in u for u in pg.eval_on_selector_all(".g-thumbs img", "els => els.map(e => e.src)")), "new images shown from Cloudflare")
+        check(all("/fake-r2/" in u for u in pg.eval_on_selector_all(".g-strip img", "els => els.map(e => e.src)")), "new images shown from Cloudflare")
     data = json.load(open(f"{RUN}/data/precedents.json"))
     rec = [r for r in data["records"] if r["id"] == "PR-0010"]
     check(bool(rec) and rec[0]["added_by"] == "Jez", "PR-0010 written to the data file")
@@ -172,6 +172,23 @@ with sync_playwright() as p:
     pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=60000)
     check(len(recs()["PR-0003"]["images"]) == n3 + 4, "the 4 images are added to PR-0003")
 
+    # the record's images: Carousel (‹ › and arrow keys, a strip of all), Grid (all at once), List; the choice is kept
+    pg.goto(BASE + "/#/p/PR-0003"); pg.wait_for_selector("#gal .g-main")
+    n_all = len(recs()["PR-0003"]["images"])
+    check(pg.locator(".g-strip button").count() == n_all, f"the strip shows all {n_all} images")
+    pg.keyboard.press("ArrowRight"); pg.keyboard.press("ArrowRight")
+    check(pg.inner_text(".gcount") == f"3 / {n_all}", "arrow keys step through the images")
+    pg.click(".gnav.prev"); check(pg.inner_text(".gcount") == f"2 / {n_all}", "‹ goes back")
+    pg.click("[data-mode=grid]"); check(pg.locator(".gal-grid button").count() == n_all, "Grid shows every image")
+    pg.screenshot(path=f"{OUT}/16_gallery_grid.png", full_page=True)
+    pg.locator(".gal-grid button").nth(n_all - 1).click()
+    check(pg.inner_text(".gcount") == f"{n_all} / {n_all}", "clicking one in the grid opens it large")
+    pg.click("[data-mode=list]"); check(pg.locator(".gal-list figure").count() == n_all, "List shows every image large")
+    pg.reload(); pg.wait_for_selector("#gal .gal-list")
+    check(True, "the chosen view is remembered")
+    pg.click("[data-mode=carousel]")
+    pg.screenshot(path=f"{OUT}/17_gallery_carousel.png")
+
     # Edit (or inbox review): "Add images from a link" right in the form
     n4 = len(recs()["PR-0004"]["images"])
     pg.goto(BASE + "/#/p/PR-0004"); pg.wait_for_selector("#edit"); pg.click("#edit"); pg.wait_for_selector("#modal .rf")
@@ -231,7 +248,7 @@ with sync_playwright() as p:
     pg.fill('input[name="name"]', "Big Photo Pavilion")
     n_pics = pg.locator("#form-host .pic input[data-keep]:checked").count()
     pg.click("#save"); pg.wait_for_selector(".rec-h h1", timeout=60000)
-    n_saved = pg.locator(".g-thumbs button").count()
+    n_saved = pg.locator(".g-strip button").count()
     check(n_saved == n_pics and n_pics >= 6, f"all {n_pics} big photos saved ({n_saved})")
     data = json.load(open(f"{RUN}/data/precedents.json"))
     check(sum(len(r["images"]) for r in data["records"] if r["name"] == "Big Photo Pavilion") == n_pics, "big photos on the record")
