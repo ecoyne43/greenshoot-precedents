@@ -67,7 +67,7 @@ main { flex: 1; overflow-y: auto; }
 .big img { max-width: 100%; max-height: calc(100% - 90px); object-fit: contain; cursor: grab; }
 .big .bstage img { max-height: 100%; } .big p { color: #e9e7df; margin: 0; font-size: 12px; text-align: center; }
 .shots { display: flex; gap: 6px; flex-wrap: wrap; } .shots .shotprev { max-height: 150px; max-width: 48%; }
-.shell.dropping::after { content: "Drop to send to the Precedents inbox"; position: absolute; inset: 44px 10px 10px; border: 2px dashed var(--accent); border-radius: 10px;
+.shell.dropping::after { content: "Drop to send to the inbox (or drop onto a precedent to add to it)"; position: absolute; inset: 44px 10px 10px; border: 2px dashed var(--accent); border-radius: 10px;
   background: rgba(230,238,245,.92); display: grid; place-items: center; font-weight: 600; color: var(--accent); z-index: 6; }
 
 /* The big view: previous / next through a precedent's images */
@@ -93,3 +93,21 @@ body.side .foot { justify-content: flex-end; }
 /* The search box stays at the top while the results scroll */
 .search { position: sticky; top: 0; z-index: 2; }
 .big { background: #15191c; }
+
+/* Sending images to an existing precedent */
+.target { margin: 2px 0 4px; }
+.tsel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 8px; background: #e8eef4; font-size: 13px; }
+.tsel.none { border-color: var(--line); background: transparent; }
+.tsel img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
+.tsel span { flex: 1; min-width: 160px; } .tsel em { white-space: nowrap; font: 11px var(--mono); color: var(--ink-soft, #6b767c); font-style: normal; margin-left: 4px; }
+.tsel em.auto { font-family: inherit; color: var(--accent); }
+.link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; font-size: 12.5px; text-decoration: underline; }
+.tpick { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.tpick input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.tpick .link { align-self: flex-start; }
+.topt { display: flex; gap: 10px; align-items: center; text-align: left; border: 0; background: none; padding: 5px; border-radius: 6px; cursor: pointer; font: inherit; width: 100%; }
+.topt:hover { background: #e8eef4; } .topt img, .topt > span:first-child { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; flex: none; background: #e4e3dc; }
+.topt b { display: block; font-size: 13px; } .topt em { font-style: normal; font-size: 11.5px; color: var(--ink-soft, #6b767c); }
+/* Dropping images onto a precedent in the list */
+.res.dropon { outline: 2px dashed var(--accent); outline-offset: -3px; background: #e8eef4; position: relative; }
+.res.dropon::after { content: "Drop to add to this precedent"; position: absolute; right: 12px; top: 8px; font-size: 11px; font-weight: 600; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 10px; }

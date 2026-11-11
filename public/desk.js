@@ -279,26 +279,81 @@ function big(id, n) {
 function openUrl(u) { if (mac) post("open", { url: u }); else window.open(u, "_blank"); }
 
 // ---------- sending to the inbox: a screenshot, or images dropped or pasted onto the panel ----------
+// Which existing precedent a send should be added to: one named in the note ("add these to the Queen & Collins fire
+// dish"), matched on the words of its name or its PR number. Returns the record, or null for a new precedent.
+const STOPW = new Set(["the", "and", "with", "for", "of", "in", "on", "at", "to", "from", "by", "a", "an", "new", "these", "this",
+  "images", "image", "photos", "photo", "add", "precedent", "project"]);
+function guessTarget(note) {
+  const t = note.toLowerCase();
+  const id = (note.match(/PR-\d{4}/i) || [])[0];
+  if (id) return lib.records.find(r => r.id === id.toUpperCase()) || null;
+  if (t.trim().length < 4) return null;
+  let best = null, score = 0;
+  for (const r of lib.records) {
+    const name = r.name.toLowerCase();
+    if (name.length > 4 && t.includes(name)) return r;
+    const ws = [...new Set(name.split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOPW.has(w)))];
+    if (!ws.length) continue;
+    const n = ws.filter(w => t.includes(w)).length, sc = n / ws.length;
+    if ((n >= 2 || (n === 1 && ws.length === 1)) && sc > score) { score = sc; best = r; }
+  }
+  return score >= 0.5 ? best : null;
+}
+
 function showShot(item) {
   const images = item.images || (item.image ? [item.image] : []);
   if (!images.length) return;
   view = "shot";
+  // target: the precedent these will be added to (dropped onto it, or named in the note); manual once chosen by hand.
+  let target = item.target ? lib.records.find(r => r.id === item.target) || null : null, manual = !!target, picking = false;
   const src = item.title || item.windowTitle || item.app || "";
+  const what = images.length > 1 ? `these ${images.length} images` : item.image ? "this screenshot" : "this image";
   main.innerHTML = `<form class="form" id="sendshot" style="max-width:none">
-    <b>Send ${images.length > 1 ? `these ${images.length} images` : item.image ? "this screenshot" : "this image"} to the Precedents inbox</b>
+    <b id="shhead"></b>
     <div class="shots">${images.map(im => `<img class="shotprev" src="data:${im.type};base64,${im.data}" alt="">`).join("")}</div>
     ${src || item.url ? `<p class="msg">From ${esc(src)}${item.url ? ` · ${esc(item.url)}` : ""}</p>` : ""}
-    <label for="sn">Note <em class="msg">which project is it? Optional: Groundwork tries to work it out</em></label>
-    <textarea id="sn" rows="2" placeholder="e.g. Bunjil Place forecourt paving"></textarea>
-    <div class="acts"><button class="btn primary">Send to the inbox</button><button class="btn" type="button" id="cancel">Cancel</button></div>
+    <label for="sn">Note <em class="msg">e.g. "add these to the Queen &amp; Collins fire dish", or what the project is</em></label>
+    <textarea id="sn" rows="2" placeholder="e.g. Add these to Ceremonial Fire Dish at Queen &amp; Collins"></textarea>
+    <div class="target" id="tg"></div>
+    <div class="acts"><button class="btn primary" id="shsend">Send to the inbox</button><button class="btn" type="button" id="cancel">Cancel</button></div>
     <p class="msg" id="shmsg"></p></form>`;
-  document.getElementById("sn").focus();
+  const tg = document.getElementById("tg"), sn = document.getElementById("sn");
+  const drawTarget = () => {
+    document.getElementById("shhead").textContent = target ? `Add ${what} to a precedent` : `Send ${what} to the Precedents inbox`;
+    document.getElementById("shsend").textContent = target ? "Send to add to this precedent" : "Send to the inbox";
+    if (picking) {
+      tg.innerHTML = `<div class="tpick"><input id="tq" type="search" placeholder="Find the precedent to add to..." autocomplete="off">
+        <div id="tlist"></div><button type="button" class="link" id="tnone">No, it's a new precedent</button></div>`;
+      const tq = document.getElementById("tq"), tl = document.getElementById("tlist");
+      const list = () => {
+        const ws = tq.value.toLowerCase().split(/\s+/).filter(Boolean);
+        const rs = (ws.length ? lib.records.filter(r => { const h = hay(r); return ws.every(w => h.includes(w)); }) : lib.records).slice(0, 6);
+        tl.innerHTML = rs.map(r => `<button type="button" class="topt" data-t="${r.id}">${primary(r) ? `<img src="${esc(imgUrl(primary(r).thumb_key))}" alt="">` : "<span></span>"}<span><b>${esc(r.name)}</b><em>${esc(r.id)} · ${esc(place(r))}</em></span></button>`).join("") || `<p class="msg">Nothing matches.</p>`;
+        tl.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { target = lib.records.find(r => r.id === b.dataset.t); manual = true; picking = false; drawTarget(); });
+      };
+      tq.oninput = list; list(); tq.focus();
+      document.getElementById("tnone").onclick = () => { target = null; manual = true; picking = false; drawTarget(); };
+      return;
+    }
+    const p = target && primary(target);
+    tg.innerHTML = target
+      ? `<div class="tsel">${p ? `<img src="${esc(imgUrl(p.thumb_key))}" alt="">` : ""}<span>Adding to <b>${esc(target.name)}</b> <em>${esc(target.id)}</em>${manual ? "" : `<em class="auto">from your note</em>`}</span>
+          <button type="button" class="link" id="tchg">Change</button><button type="button" class="link" id="tnew">New precedent instead</button></div>`
+      : `<div class="tsel none"><span>A new precedent.</span><button type="button" class="link" id="tchg">Add to an existing precedent instead</button></div>`;
+    document.getElementById("tchg").onclick = () => { picking = true; drawTarget(); };
+    document.getElementById("tnew")?.addEventListener("click", () => { target = null; manual = true; drawTarget(); });
+  };
+  sn.oninput = () => { if (manual) return; const g = guessTarget(sn.value); if (g?.id !== target?.id) { target = g; drawTarget(); } };
+  drawTarget();
+  sn.focus();
   document.getElementById("cancel").onclick = () => render();
   document.getElementById("sendshot").onsubmit = async e => {
     e.preventDefault();
+    if (picking) return;
     const m = document.getElementById("shmsg"); m.className = "msg"; m.textContent = "Sending...";
-    const note = [document.getElementById("sn").value.trim(), item.file ? `From ${item.file.split("/").pop()}` : ""].filter(Boolean).join(". ");
-    const base = { from: "mac", url: item.url || "", title: item.title || item.windowTitle || note || "", site: item.app || "", author: item.author || "", note };
+    const note = [sn.value.trim(), item.file ? `From ${item.file.split("/").pop()}` : ""].filter(Boolean).join(". ");
+    const base = { from: "mac", url: item.url || "", title: target ? `More for ${target.name}` : item.title || item.windowTitle || note || "",
+      site: item.app || "", author: item.author || "", note, ...(target ? { target: target.id } : {}) };
     try {
       // Netlify refuses requests over about 6 MB, so several images go up in parts.
       const parts = [[]]; let size = 0;
@@ -307,8 +362,12 @@ function showShot(item) {
         parts.at(-1).push({ data: im.data, type: im.type, name: im.name || "image.jpg" }); size += im.data.length;
       }
       const { item: sent } = await api("/api/inbox", { ...base, uploads: parts[0] });
-      for (const p of parts.slice(1)) await fetch("/api/inbox", { method: "PATCH", headers: { "x-app-password": auth.pw, "x-user-name": encodeURIComponent(auth.name), "content-type": "application/json" }, body: JSON.stringify({ id: sent.id, uploads: p }) });
-      render(); toast("Sent to the inbox");
+      for (const [k, p] of parts.slice(1).entries()) {
+        m.textContent = `Sending (${k + 2} of ${parts.length})...`;
+        await fetch("/api/inbox", { method: "PATCH", headers: { "x-app-password": auth.pw, "x-user-name": encodeURIComponent(auth.name), "content-type": "application/json" }, body: JSON.stringify({ id: sent.id, uploads: p }) });
+      }
+      render();
+      toast(target ? `Sent. Once approved in the inbox, they're added to ${esc(target.name)}.` : "Sent to the inbox", 4000);
     } catch (err) { m.className = "msg bad"; m.textContent = `Couldn't send: ${err.message}`; }
   };
 }
@@ -322,18 +381,34 @@ async function shrinkFile(f) {
   const url = c.toDataURL("image/jpeg", 0.82);
   return { data: url.split(",")[1], type: "image/jpeg", name: (f.name || "image").replace(/\.[a-z]+$/i, "") + ".jpg" };
 }
-async function offerFiles(files) {
-  const imgs = [...files].filter(f => f.type.startsWith("image/")).slice(0, 8);
+async function offerFiles(files, target) {
+  const imgs = [...files].filter(f => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|gif|tiff?)$/i.test(f.name || "")).slice(0, 20);
   if (!imgs.length) return toast("Only images can be sent from here. For a web page, use the browser extension.");
   if (!auth.pw) return showSettings();
-  showShot({ images: await Promise.all(imgs.map(shrinkFile)) });
+  if (files.length > 20) toast("Up to 20 images at a time: the first 20 are ready to send.", 4000);
+  const ok = (await Promise.allSettled(imgs.map(shrinkFile))).filter(x => x.status === "fulfilled").map(x => x.value);
+  if (!ok.length) return toast("Those images couldn't be read here (HEIC from an iPhone? Export them as JPEG first).", 5000);
+  showShot({ images: ok, target });
 }
-document.addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); document.getElementById("shell").classList.add("dropping"); } });
-document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.getElementById("shell").classList.remove("dropping"); });
+// Dropping images: onto a precedent in the list adds them to it; anywhere else, they're sent as new (or say in the
+// note which precedent they belong to).
+const dropRow = e => e.target.closest?.(".res");
+const clearDrop = () => { document.getElementById("shell").classList.remove("dropping"); main.querySelectorAll(".res.dropon").forEach(x => x.classList.remove("dropon")); };
+document.addEventListener("dragover", e => {
+  if (!e.dataTransfer?.types?.includes("Files")) return;
+  e.preventDefault();
+  const r = view === "search" ? dropRow(e) : null;
+  main.querySelectorAll(".res.dropon").forEach(x => x !== r && x.classList.remove("dropon"));
+  r?.classList.add("dropon");
+  document.getElementById("shell").classList.toggle("dropping", !r);
+});
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) clearDrop(); });
 document.addEventListener("drop", e => {
-  document.getElementById("shell").classList.remove("dropping");
+  const r = view === "search" ? dropRow(e) : null;
+  clearDrop();
   if (!e.dataTransfer?.files?.length) return;
-  e.preventDefault(); offerFiles(e.dataTransfer.files);
+  e.preventDefault();
+  offerFiles(e.dataTransfer.files, r?.querySelector("[data-row]")?.dataset.row);
 });
 document.addEventListener("paste", e => {
   const files = [...(e.clipboardData?.files || [])];

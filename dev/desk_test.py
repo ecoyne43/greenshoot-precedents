@@ -42,6 +42,35 @@ with sync_playwright() as p:
     it = json.load(urllib.request.urlopen(req))["items"][0]
     check(len(it["uploads"]) == 2 and it["note"] == "Site visit", "dropped images sent to the inbox")
 
+    # adding images to an existing precedent: drop them onto it in the list, or name it in the note
+    drop_js = """async (sel) => { const blob = await (await fetch('/fake-site/b.jpg')).blob();
+      const dt = new DataTransfer(); dt.items.add(new File([blob], 'fire dish 1.jpg', { type: 'image/jpeg' })); dt.items.add(new File([blob], 'fire dish 2.jpg', { type: 'image/jpeg' }));
+      const el = document.querySelector(sel);
+      el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); }"""
+    pg.goto(BASE + "/desk.html"); pg.wait_for_selector(".res")
+    pg.fill("#q", "basalt"); pg.wait_for_timeout(150)
+    pg.evaluate(drop_js, ".res .rt")
+    pg.wait_for_selector("#sendshot")
+    check("Basalt Plains Memorial Garden" in pg.inner_text("#tg") and "Add these 2 images to a precedent" in pg.inner_text("#shhead"), "dropped onto a precedent: adding to it")
+    pg.click("#shsend"); pg.wait_for_selector("#toast:has-text('added to')")
+    it = json.load(urllib.request.urlopen(req))["items"][0]
+    check(it.get("target") == "PR-0008" and len(it["uploads"]) == 2, "inbox item will add to PR-0008")
+    pg.goto(BASE + "/desk.html"); pg.wait_for_selector(".res")
+    pg.evaluate(drop_js, "#list")
+    pg.wait_for_selector("#sendshot")
+    check("A new precedent" in pg.inner_text("#tg"), "dropped elsewhere: new precedent")
+    pg.fill("#sn", "add these to the Ironbark library forecourt please"); pg.wait_for_timeout(100)
+    check("Ironbark Library Forecourt" in pg.inner_text("#tg") and "from your note" in pg.inner_text("#tg"), "the note picks the precedent")
+    pg.screenshot(path=sys.argv[2] + "/desk_addto.png") if len(sys.argv) > 2 else None
+    pg.click("#tchg"); pg.fill("#tq", "eel trap"); pg.click(".topt")
+    check("Eel Trap Playspace" in pg.inner_text("#tg"), "or choose it by hand")
+    pg.fill("#sn", "the Ironbark one actually"); pg.wait_for_timeout(100)
+    check("Eel Trap Playspace" in pg.inner_text("#tg"), "a hand choice isn't overridden by the note")
+    pg.click("#shsend"); pg.wait_for_selector("#toast:has-text('added to')")
+    it = json.load(urllib.request.urlopen(req))["items"][0]
+    check(it.get("target") == "PR-0009", "sent to add to the chosen precedent")
+
     # the side panel (opened from the tab on the right edge): tall and narrow
     sp = b.new_page(viewport={"width": 440, "height": 880})
     sp.on("pageerror", lambda e: errors.append(f"page error (side): {e}"))

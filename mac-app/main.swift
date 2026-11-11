@@ -121,7 +121,7 @@ final class TabView: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         dropping = false
         let pb = sender.draggingPasteboard
-        var imgs = imageURLs(pb).prefix(8).compactMap { NSImage(contentsOf: $0) }
+        var imgs = imageURLs(pb).prefix(20).compactMap { NSImage(contentsOf: $0) }
         if imgs.isEmpty, let i = NSImage(pasteboard: pb) { imgs = [i] }
         if imgs.isEmpty { return false }
         onDrop?(Array(imgs))
@@ -239,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     // Images dropped on the tab go to the inbox, through the same send form as a screenshot.
     func sendDropped(_ imgs: [NSImage]) {
-        let encs = imgs.prefix(8).compactMap { encodeImage($0) }
+        let encs = imgs.prefix(20).compactMap { encodeImage($0) }
         guard !encs.isEmpty else { return }
         show(side: true)
         js("pr.shot(\(jsonString(["images": encs])))")
