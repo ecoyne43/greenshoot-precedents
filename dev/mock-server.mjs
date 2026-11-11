@@ -61,6 +61,7 @@ function fakeClaude(body) {
     const notes = text.split("RESEARCH NOTES")[1] || "";
     const empty = k => new RegExp(`^${k} \\([^)]*\\): \\(empty\\)`, "m").test(text);
     out = { summary: "Checked every field against two sources and the record's own text.", changes: [], add_facets: {}, add_tags: [], add_sources: [], caveats: "" };
+    if (/cutoff test/i.test(text)) out.changes.push({ field: "architect", value: "Cutoff Studio", reason: "Named on the practice site.", source: "https://example.org/a" }, { field: "year_completed", value: "2021", reason: "Opening date.", source: "https://example.org/b" });
     if (notes.includes("Sample Architecture Award") && empty("awards")) out.changes.push({ field: "awards", value: "Sample Architecture Award, Small Project, 2025", reason: "Listed on the awards page.", source: "https://example.org/awards" });
     if (/co-designed by Greenshoot/i.test(text) && empty("first_peoples_collaborators")) out.changes.push({ field: "first_peoples_collaborators", value: "Greenshoot Consulting (co-design)", reason: "The description says Greenshoot co-designed it.", source: "record text" });
     out.changes.push({ field: "architect", value: "Example Studio with Tidal Landscape", reason: "The practice page credits both.", source: "https://example.org/tidewater" });
@@ -156,7 +157,9 @@ http.createServer(async (req, res) => {
     if (url.pathname === "/fake-claude/v1/messages") {
       const b = JSON.parse(body.toString());
       if (b.stream && !(b.system || "").includes("Research a precedent")) {   // streamed JSON answer (Check and fill)
-        const text = fakeClaude({ ...b, stream: false }).content[0].text;
+        let text = fakeClaude({ ...b, stream: false }).content[0].text;
+        // Like Netlify stopping a function after about 30 seconds: the answer ends partway.
+        if (/cutoff test/i.test(JSON.stringify(b.messages))) text = text.slice(0, text.indexOf('"reason"', text.indexOf('"reason"') + 1) + 3);
         res.writeHead(200, { "content-type": "text/event-stream" });
         for (let i = 0; i < text.length; i += 40) res.write(`event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: text.slice(i, i + 40) } })}\n\n`);
         return res.end();

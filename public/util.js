@@ -70,3 +70,25 @@ export async function readWebText(res, onSearch = () => {}) {
   }
   return text.trim();
 }
+
+// Groundwork's JSON answer from a stream, even when the stream stopped early (Netlify ends a function after about
+// 30 seconds, so a long check can be cut off mid-answer). Returns { value, complete }: complete is false when only
+// the part that arrived could be used (everything up to the last whole item). Throws if nothing usable arrived.
+export async function readJSONAnswer(res) {
+  const text = await readWebText(res);
+  try { return { value: JSON.parse(text), complete: true }; } catch { /* cut off: use what arrived */ }
+  const stack = [], cuts = [];
+  let inStr = false, esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]");
+    else if (ch === "}" || ch === "]") { stack.pop(); cuts.push([i + 1, stack.slice().reverse().join("")]); }
+    else if (ch === ",") cuts.push([i, stack.slice().reverse().join("")]);
+  }
+  for (let k = cuts.length - 1; k >= 0; k--) {
+    try { const value = JSON.parse(text.slice(0, cuts[k][0]) + cuts[k][1]); if (value && typeof value === "object") return { value, complete: false }; } catch { /* try an earlier point */ }
+  }
+  throw new Error("Groundwork's answer was cut off before anything useful arrived (the site stops after about 30 seconds). Try again");
+}

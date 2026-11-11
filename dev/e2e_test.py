@@ -345,6 +345,15 @@ with sync_playwright() as p:
     pub = open("public/filename.js").read(); srv = open("netlify/lib/filename.mjs").read().split("\n", 1)[1]
     check(pub == srv, "the site's and the server's file-name rules are the same")
 
+    # Check and fill cut off partway (Netlify's time limit): what arrived is still offered
+    pg.goto(BASE + "/#/p/PR-0002"); pg.wait_for_selector("#edit"); pg.click("#edit"); pg.wait_for_selector("#modal .rf")
+    pg.fill('#modal input[name="name"]', "Cutoff test pavilion"); pg.fill('#modal input[name="architect"]', ""); pg.fill('#modal input[name="year_completed"]', "")
+    pg.click("#modal #fill"); pg.wait_for_selector("#modal #fill-out .fill-box, #modal #fill-msg:has-text('Couldn')", timeout=30000)
+    check("ran out of time" in pg.inner_text("#modal #fill-msg"), "a cut-off check says so: " + pg.inner_text("#modal #fill-msg")[:80])
+    rows = pg.locator("#modal .chg tbody tr").count()
+    check(rows >= 1 and "Cutoff Studio" in pg.inner_text("#modal .chg"), f"the changes that arrived are offered ({rows})")
+    pg.click("#mclose")
+
     # phone width
     ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)
     ph.goto(BASE + "/"); ph.evaluate("localStorage.setItem('gp_pw','test'); localStorage.setItem('gp_name','Ed')"); ph.goto(BASE + "/#/library"); ph.reload()

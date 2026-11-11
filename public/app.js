@@ -1,7 +1,7 @@
 // Groundworked Precedents: the library, the inbox review and the Add page. One page, views chosen by the address
 // (#/library, #/p/PR-0001, #/inbox, #/inbox/<id>, #/add). Records come from /api/library; nothing is saved until
 // someone approves (inbox) or saves an edit, which commits to the data repo.
-import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText } from "./util.js";
+import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText, readJSONAnswer } from "./util.js";
 import { bookmarklet } from "./bookmarklet.js";
 import { nameFromFile } from "./filename.js";
 
@@ -741,10 +741,9 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     msg.textContent = "Checking every field...";
     try {
       const res = await api("/api/check", { method: "POST", body: { record, notes }, raw: true });
-      let raw;
-      try { raw = JSON.parse(await readWebText(res)); } catch { throw new Error("Groundwork's answer was cut short. Try again."); }
+      const { value: raw, complete } = await readJSONAnswer(res);
       const ans = tidyCheck(raw, record);
-      msg.textContent = searchNote + (ans.summary || "Checked.");
+      msg.textContent = searchNote + (complete ? ans.summary || "Checked." : "Groundwork ran out of time partway (the site stops after about 30 seconds), so this is the first part of the check. Use what's here, then run it again for the rest.");
       const box = el.querySelector("#fill-out");
       box.innerHTML = proposalsHTML(ans, false);
       wireProposals(box, ans);
@@ -801,13 +800,12 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     el.querySelector("#prop-top").scrollIntoView({ block: "nearest" });
     try {
       const res = await api("/api/merge", { method: "POST", raw: true, body: { target: existing, incoming: item?.draft?.record || {}, note: item?.note || "", text: item?.text || "", url: item?.url || "" } });
-      let raw;
-      try { raw = JSON.parse(await readWebText(res)); } catch { throw new Error("Groundwork's answer was cut short. Try again."); }
+      const { value: raw, complete } = await readJSONAnswer(res);
       if (target !== id) return;   // changed their mind while it was working
       const ans = tidyCheck(raw, existing);
       if (item?.url && !(existing.sources || []).some(x => x.includes(item.url)) && !ans.add_sources.some(x => x.includes(item.url))) ans.add_sources.push(`${item.title || item.site || "Web page"}, ${item.url}`);
       topAns = ans;
-      topHTML = `<div class="prop-h"><b>What the new material adds to ${esc(id)}</b> <span class="muted">${esc(ans.summary)}</span></div>` + proposalsHTML(ans, true);
+      topHTML = `<div class="prop-h"><b>What the new material adds to ${esc(id)}</b> <span class="muted">${esc(complete ? ans.summary : "Groundwork ran out of time partway, so this is part of it: use what's here, then Check and fill online for the rest.")}</span></div>` + proposalsHTML(ans, true);
     } catch (e) {
       topHTML = `<p class="bad small">Couldn't work out the changes: ${esc(e.message)}. You can still edit the fields by hand, then approve.</p>`;
     }
@@ -860,7 +858,7 @@ function tidyCheck(out, record) {
     .filter(ch => fieldKeys.includes(ch.field) && ch.value && !same(ch.value, record[ch.field]))
     .filter(ch => (ch.field === "status" ? c.status.includes(ch.value) : ch.field === "scale" ? c.scale.includes(ch.value) : true))
     .filter((ch, i, a) => a.findIndex(x => x.field === ch.field) === i)
-    .map(ch => ({ ...ch, current: record[ch.field] || "" }));
+    .map(ch => ({ reason: "", source: "", ...ch, current: record[ch.field] || "" }));
   const add_facets = {};
   for (const f of c.facets) {
     const have = record.facets?.[f.key] || [];

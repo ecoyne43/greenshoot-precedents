@@ -13,7 +13,7 @@ export default async (req) => {
   if (denied) return denied;
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   const { record = {}, notes = "" } = await req.json().catch(() => ({}));
-  const content = `RECORD\n${recordText(record)}\n\nRESEARCH NOTES\n${String(notes).slice(0, 12000) || "(none: the web search found nothing or was not run)"}\n\nCheck the record.`;
+  const content = `RECORD\n${recordText(record)}\n\nRESEARCH NOTES\n${String(notes).slice(0, 9000) || "(none: the web search found nothing or was not run)"}\n\nCheck the record.`;
   const F = await getFacets();
   return streamJSON({ system: checkRules(F), content, schema: checkSchema(F), maxTokens: 4000 });
 };

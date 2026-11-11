@@ -128,7 +128,8 @@ sources) and research notes from a web search (possibly empty).
   sentences (at most 40 words), and do not propose why_it_matters or description. Do not rewrite text fields just for
   style. Only propose a new summary or description when it is missing or contains something wrong; otherwise leave
   long text fields alone.
-- Keep it short: one change per field, reasons of one sentence.
+- Keep it short and quick: one change per field, reasons of at most 15 words, sources as a url only. Put the most
+  useful changes first (name, place, year, designers, then the rest).
 - add_facets: only category values from the lists that the material clearly supports and the record lacks.
 - add_material_details: specific materials and finishes the sources name that the record lacks (e.g. "Corten steel").
 - add_sources: notes sources you relied on, as "Title, url".
