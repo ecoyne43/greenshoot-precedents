@@ -12,7 +12,9 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const ls = { get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } } };
 
 let auth = { pw: ls.get("gp_pw"), name: ls.get("gp_name") };
-let lib = { records: [], token: "" }, q = "", ask = null, openId = null, sel = 0, view = "search", pinned = false;
+let lib = { records: [], token: "" }, q = "", ask = null, openId = null, sel = 0, view = "search", pinned = false, close = false;
+let mode = new URLSearchParams(location.search).get("mode") || "top";   // "side": the panel beside the tab
+document.body.classList.toggle("side", mode === "side");
 try { const c = JSON.parse(ls.get("gp_desk_cache") || "null"); if (c?.records) lib = c; } catch { /* no cache */ }
 
 async function api(path, body) {
@@ -92,11 +94,21 @@ function showSettings(msg = "") {
 // ---------- search ----------
 function results() {
   if (ask?.results) return ask.results.map(x => ({ r: lib.records.find(r => r.id === x.id), why: x.reason })).filter(x => x.r);
-  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const list = words.length
+  const words = q.toLowerCase().split(/[\s,]+/).filter(w => w.length > 1 || /\d/.test(w));
+  close = false;
+  let list = words.length
     ? lib.records.filter(r => { const h = hay(r); return words.every(w => h.includes(w)); })
       .sort((a, b) => Number(b.name.toLowerCase().includes(words[0])) - Number(a.name.toLowerCase().includes(words[0])))
     : [...lib.records].sort((a, b) => (b.updated || b.added || "").localeCompare(a.updated || a.added || ""));
+  // A description ("rammed earth walls with planting") rarely matches every word: show the closest instead,
+  // most words matched first (and suggest Ask for a proper read of it).
+  if (!list.length && words.length > 1) {
+    const STOP = new Set(["the", "and", "with", "for", "of", "in", "on", "a", "an", "to", "or", "that", "by", "at", "from", "like"]);
+    const ws = words.filter(w => !STOP.has(w));
+    list = lib.records.map(r => { const h = hay(r); return { r, n: ws.filter(w => h.includes(w)).length }; })
+      .filter(x => x.n >= Math.max(1, Math.ceil(ws.length / 2))).sort((a, b) => b.n - a.n).map(x => x.r);
+    close = list.length > 0;
+  }
   return list.slice(0, 50).map(r => ({ r }));
 }
 
@@ -109,11 +121,11 @@ function render(keepFocus) {
   main.innerHTML = `
     <form class="search" id="sf">
       <div class="sbox"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
-        <input id="q" type="search" placeholder="Find a precedent: name, place, designer, theme..." value="${esc(q)}" autocomplete="off" spellcheck="false"></div>
+        <input id="q" type="search" placeholder="${mode === "side" ? "Name, place, material, idea..." : "Find a precedent: name, place, designer, material, theme..."}" value="${esc(q)}" autocomplete="off" spellcheck="false"></div>
       <button class="ask" type="submit" title="Ask Groundwork in plain words (Command-Return)"><b>✦</b> Ask</button>
     </form>
     ${ask ? `<div class="askbox"><b>✦ Groundwork</b> ${ask.busy ? "Reading the library..." : esc(ask.error || ask.summary || "")} <a href="#" id="clr">Clear</a></div>` : ""}
-    <div class="meta"><span>${ask ? `${list.length} suggested` : q ? `${list.length} found` : "Recently added and updated"}</span><span>${lib.records.length} in the library</span></div>
+    <div class="meta"><span>${ask ? `${list.length} suggested` : close ? `No exact match: ${list.length} close · <a href="#" id="askit">✦ Ask instead</a>` : q ? `${list.length} found` : "Recently added and updated"}</span><span>${lib.records.length} in the library</span></div>
     <div id="list">${list.length ? list.map(({ r, why }, i) => row(r, why, i)).join("") : `<div class="empty">${lib.records.length ? "Nothing matches. Try other words, or ✦ Ask." : "Loading the library..."}</div>`}</div>`;
   const input = document.getElementById("q");
   input.oninput = () => { q = input.value; ask = null; sel = 0; openId = null; render(); };
@@ -121,6 +133,7 @@ function render(keepFocus) {
   if (focused || !keepFocus) { input.focus(); if (pos != null) input.setSelectionRange(pos, pos); }
   document.getElementById("sf").onsubmit = e => { e.preventDefault(); runAsk(); };
   document.getElementById("clr")?.addEventListener("click", e => { e.preventDefault(); ask = null; render(); });
+  document.getElementById("askit")?.addEventListener("click", e => { e.preventDefault(); runAsk(); });
   wire();
 }
 
@@ -229,17 +242,38 @@ function download(id, which) {
   for (const it of items) { const a = Object.assign(document.createElement("a"), { href: it.url, download: it.filename }); document.body.append(a); a.click(); a.remove(); }
 }
 
+// The big view: one image at a time; ‹ › or the arrow keys go through the precedent's images.
 function big(id, n) {
-  const r = lib.records.find(x => x.id === id), im = r.images[n];
+  const r = lib.records.find(x => x.id === id), imgs = r.images || [];
+  document.querySelector(".big")?.remove();
   const box = document.createElement("div");
   box.className = "big";
-  box.innerHTML = `<img src="${esc(imgUrl(im.key))}" alt="" draggable="true"><p>${esc(im.caption)}${im.credit ? ` · Image: ${esc(im.credit)}` : ""}</p>
-    <div class="acts"><button class="btn" id="bc">Copy</button><button class="btn primary" id="bd">Download</button><button class="btn" id="bx">Close</button></div>`;
+  const show = k => {
+    n = (k + imgs.length) % imgs.length;
+    const im = imgs[n];
+    box.innerHTML = `<div class="bhead"><b>${esc(r.name)}</b><span>${n + 1} of ${imgs.length}</span></div>
+      <div class="bstage">${imgs.length > 1 ? `<button class="nav" id="bp" title="Previous (←)">‹</button>` : ""}
+        <img src="${esc(imgUrl(im.key))}" alt="" draggable="true">
+        ${imgs.length > 1 ? `<button class="nav" id="bn" title="Next (→)">›</button>` : ""}</div>
+      <p>${esc(im.image_type)}${im.caption ? ` · ${esc(im.caption)}` : ""}${im.credit ? ` · Image: ${esc(im.credit)}` : ""}</p>
+      <div class="acts"><button class="btn" id="bc">Copy</button><button class="btn primary" id="bd">Download</button>
+        ${imgs.length > 1 ? `<button class="btn" id="ba">Download all (${imgs.length})</button>` : ""}<button class="btn" id="bx">Close</button></div>`;
+    box.querySelector("img").ondragstart = e => dragOut(e, id, n);
+    box.querySelector("#bp")?.addEventListener("click", () => show(n - 1));
+    box.querySelector("#bn")?.addEventListener("click", () => show(n + 1));
+    box.querySelector("#bc").onclick = () => copyImage(id, n);
+    box.querySelector("#bd").onclick = () => download(id, [n]);
+    box.querySelector("#ba")?.addEventListener("click", () => download(id));
+    box.querySelector("#bx").onclick = () => box.remove();
+  };
+  box.tabIndex = -1;
+  box.onkeydown = e => {
+    if (e.key === "ArrowLeft") { e.preventDefault(); show(n - 1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); show(n + 1); }
+  };
   document.getElementById("shell").append(box);
-  box.querySelector("img").ondragstart = e => dragOut(e, id, n);
-  box.querySelector("#bc").onclick = () => copyImage(id, n);
-  box.querySelector("#bd").onclick = () => download(id, [n]);
-  box.querySelector("#bx").onclick = () => box.remove();
+  show(n);
+  box.focus();
 }
 
 function openUrl(u) { if (mac) post("open", { url: u }); else window.open(u, "_blank"); }
@@ -311,6 +345,7 @@ window.pr = {
   focus() { if (view === "search") { const i = document.getElementById("q"); i?.focus(); i?.select(); } refresh(); },
   setPinned(on) { pinned = on; document.getElementById("pin").classList.toggle("on", on); document.getElementById("pin").textContent = on ? "Pinned" : "Pin"; },
   shot(item) { showShot(item); },
+  setMode(m) { mode = m === "side" ? "side" : "top"; document.body.classList.toggle("side", mode === "side"); if (view === "search") render(true); },
   downloaded(n, folder) { const t = toast(`${n} image${n === 1 ? "" : "s"} saved to Downloads › Precedents <button id="reveal">Show in Finder</button>`, 5000); t.querySelector("#reveal").onclick = () => post("reveal", { folder }); },
   copied() { toast("Image copied. Paste it into InDesign, PowerPoint or anywhere."); },
   note(text) { toast(esc(text), 4000); },

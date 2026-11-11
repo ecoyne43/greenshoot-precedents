@@ -1,5 +1,10 @@
 # Precedents for Mac
 
+**The Precedents tab** sits on the right edge of the screen while the app runs. Click it to open the search panel
+beside it; drag it up or down to move it; drop images on it to send them to the inbox. Hide or show it from the menu
+bar icon (Show the Precedents tab). In the panel, click an image to see it large, then ‹ › or the arrow keys go
+through that precedent's images.
+
 A small Mac app for Greenshoot's Precedents library. Separate from Groundwork Capture (the mapping tools' widget).
 
 - **Control-Option-P** (or the menu bar icon > Find a precedent): a search panel appears over whatever you're working

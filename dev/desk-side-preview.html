@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Precedents for Mac: side panel preview</title>
+<style>
+  body { margin: 0; width: 1440px; height: 900px; overflow: hidden; font: 13px -apple-system, "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 700px at 20% 10%, #6f8aa3, transparent), radial-gradient(900px 700px at 90% 90%, #4f6a5b, transparent), #3b4a57; }
+  .menubar { height: 26px; background: rgba(240,240,240,.82); display: flex; align-items: center; gap: 18px; padding: 0 14px; font-size: 13px; color: #111; }
+  .menubar .r { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+  .menubar .me { width: 18px; height: 16px; border: 1.4px solid #111; border-radius: 2px; display: grid; place-items: center; font: 600 10px ui-monospace, monospace; }
+  .app { position: absolute; left: 40px; top: 60px; width: 1300px; height: 790px; background: #2b2b2b; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.4); overflow: hidden; }
+  .app .bar { height: 30px; background: #3a3a3a; display: flex; align-items: center; padding-left: 12px; gap: 7px; color: #bbb; font-size: 12px; }
+  .app .bar i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; } .app .bar i:nth-child(2) { background: #febc2e; } .app .bar i:nth-child(3) { background: #28c840; }
+  .app .bar span { margin-left: 14px; }
+  .page { position: absolute; left: 260px; top: 70px; width: 780px; height: 552px; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.4); padding: 40px; }
+  .page h1 { font: 600 28px Avenir, -apple-system, sans-serif; margin: 0 0 6px; } .page p { color: #666; margin: 0; }
+  .page .box { margin-top: 24px; height: 330px; border: 1.5px dashed #c9c9c9; display: grid; place-items: center; color: #aaa; }
+  .tools { position: absolute; left: 0; top: 30px; bottom: 0; width: 44px; background: #333; }
+  .pane { position: absolute; right: 0; top: 30px; bottom: 0; width: 200px; background: #333; }
+  /* The tab (drawn natively by the app; copied here in CSS for the preview) and the side panel beside it */
+  .tab { position: absolute; right: 0; top: 246px; width: 34px; height: 142px; background: #2b5f8a; border-radius: 10px 0 0 10px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35); color: #ebebeb; display: flex; flex-direction: column; align-items: center; padding-top: 12px; gap: 10px; }
+  .tab .g { width: 20px; height: 20px; border: 1.5px solid #ebebeb; display: grid; place-items: center; font: 600 12px ui-monospace, monospace;
+    background-image: linear-gradient(rgba(235,235,235,.16) 1px, transparent 1px), linear-gradient(90deg, rgba(235,235,235,.16) 1px, transparent 1px); background-size: 5px 5px; }
+  .tab span { writing-mode: vertical-rl; font: 600 12px -apple-system, sans-serif; letter-spacing: .4px; }
+  iframe { position: absolute; right: 40px; top: 36px; width: 440px; height: 854px; border: 0; border-radius: 12px; background: transparent;
+    box-shadow: 0 24px 70px rgba(0,0,0,.45); }
+</style></head>
+<body>
+  <div class="menubar"><b></b><b>Layout app</b><span>File</span><span>Edit</span><span>Layout</span><span>Window</span>
+    <div class="r"><span class="me">G</span><span>Sun 8 Nov 4:12 pm</span></div></div>
+  <div class="app"><div class="bar"><i></i><i></i><i></i><span>Workshop booklet.indd @ 75%</span></div><div class="tools"></div><div class="pane"></div>
+    <div class="page"><h1>Precedents</h1><p>Gathering places on Country</p><div class="box">Drop images here</div></div></div>
+  <div class="tab"><span class="g">G</span><span>Precedents</span></div>
+  <iframe id="desk"></iframe>
+<script>
+  localStorage.setItem("gp_pw", "test"); localStorage.setItem("gp_name", "Ed");
+  document.getElementById("desk").src = "/desk.html?mode=side";
+</script>
+</body></html>

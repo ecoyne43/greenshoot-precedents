@@ -1,4 +1,6 @@
-// Precedents for Mac: Greenshoot's precedents library, one keystroke away. Control-Option-P shows a search panel over
+// Precedents for Mac: Greenshoot's precedents library, always at the edge of the screen. A Precedents tab sits on the
+// right edge: click it and a search panel slides out beside it (drag the tab up or down to move it; drop images on it
+// to send them to the inbox). Control-Option-P shows the same search as a panel near the top of the screen over
 // whatever you're working in; type anything to find a precedent, open it, and drag its images straight into
 // InDesign, PowerPoint or Finder (or copy or download them). Control-Option-O sends a screenshot to the inbox.
 // Separate from Groundwork Capture (the mapping tools' widget): its own app, shortcuts and settings.
@@ -22,6 +24,111 @@ final class FloatingPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+// The tab on the right edge of the screen: click to open the side panel, drag up or down to move it, drop images on it
+// to send them to the inbox. Drawn here (not a web page) so it is always instant and light.
+final class TabView: NSView {
+    var onClick: (() -> Void)?
+    var onDrag: ((CGFloat) -> Void)?
+    var onDrop: (([NSImage]) -> Void)?
+    var isOpen = false { didSet { needsDisplay = true } }
+    var hovering = false { didSet { needsDisplay = true } }
+    var dropping = false { didSet { needsDisplay = true } }
+    private var downAt: NSPoint?
+    private var lastY: CGFloat = 0
+    private var moved = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes([.fileURL, .tiff, .png, NSPasteboard.PasteboardType("public.jpeg")])
+        toolTip = "Precedents: click to search the library. Drag up or down to move. Drop images here to send them."
+    }
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func updateTrackingAreas() {
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        super.updateTrackingAreas()
+    }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+
+    override func mouseDown(with event: NSEvent) {
+        downAt = NSEvent.mouseLocation; lastY = downAt!.y; moved = false
+    }
+    override func mouseDragged(with event: NSEvent) {
+        let p = NSEvent.mouseLocation
+        if let d = downAt, abs(p.y - d.y) > 3 { moved = true }
+        if moved { onDrag?(lastY - p.y); lastY = p.y }      // positive: moved down the screen
+    }
+    override func mouseUp(with event: NSEvent) {
+        if !moved { onClick?() }
+        downAt = nil; moved = false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let ink = NSColor(red: 0.082, green: 0.098, blue: 0.11, alpha: 1)
+        let accent = NSColor(red: 0.169, green: 0.373, blue: 0.541, alpha: 1)
+        let fill = (isOpen || dropping) ? accent : hovering ? NSColor(red: 0.16, green: 0.18, blue: 0.2, alpha: 1) : ink
+        // Rounded on the left; the right side runs off the screen edge.
+        let shape = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: bounds.width + 12, height: bounds.height), xRadius: 10, yRadius: 10)
+        fill.setFill(); shape.fill()
+        let fg = NSColor(white: 0.92, alpha: 1)
+
+        // The G mark (a small grid square), near the top.
+        let m = NSRect(x: (bounds.width - 20) / 2, y: bounds.height - 12 - 20, width: 20, height: 20)
+        NSColor(white: 0.92, alpha: 0.16).setStroke()
+        let grid = NSBezierPath(); grid.lineWidth = 1
+        for i in 1..<4 {
+            let o = CGFloat(i) * 5
+            grid.move(to: NSPoint(x: m.minX + o, y: m.minY)); grid.line(to: NSPoint(x: m.minX + o, y: m.maxY))
+            grid.move(to: NSPoint(x: m.minX, y: m.minY + o)); grid.line(to: NSPoint(x: m.maxX, y: m.minY + o))
+        }
+        grid.stroke()
+        fg.setStroke()
+        let box = NSBezierPath(rect: m.insetBy(dx: 0.75, dy: 0.75)); box.lineWidth = 1.5; box.stroke()
+        let g = "G" as NSString
+        let gAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: fg]
+        let gs = g.size(withAttributes: gAttrs)
+        g.draw(at: NSPoint(x: m.midX - gs.width / 2, y: m.midY - gs.height / 2), withAttributes: gAttrs)
+
+        // The name, reading down the tab (or what a drop will do).
+        let label = (dropping ? "Drop to send" : "Precedents") as NSString
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: fg, .kern: 0.4]
+        let sz = label.size(withAttributes: attrs)
+        NSGraphicsContext.saveGraphicsState()
+        let t = NSAffineTransform()
+        t.translateX(by: bounds.midX - sz.height / 2, yBy: m.minY - 10)
+        t.rotate(byDegrees: -90)
+        t.concat()
+        label.draw(at: .zero, withAttributes: attrs)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    // Images dropped on the tab: image files from Finder, or an image dragged from a browser or another app.
+    private func imageURLs(_ pb: NSPasteboard) -> [URL] {
+        (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: ["public.image"]]) as? [URL]) ?? []
+    }
+    private func canTake(_ pb: NSPasteboard) -> Bool { !imageURLs(pb).isEmpty || NSImage.canInit(with: pb) }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let ok = canTake(sender.draggingPasteboard)
+        dropping = ok
+        return ok ? .copy : []
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) { dropping = false }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        dropping = false
+        let pb = sender.draggingPasteboard
+        var imgs = imageURLs(pb).prefix(8).compactMap { NSImage(contentsOf: $0) }
+        if imgs.isEmpty, let i = NSImage(pasteboard: pb) { imgs = [i] }
+        if imgs.isEmpty { return false }
+        onDrop?(Array(imgs))
+        return true
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate, NSDraggingSource {
     var panel: FloatingPanel!
     var web: WKWebView!
@@ -32,11 +139,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var pinned = false
     var dragging = false
     var previousApp: NSRunningApplication?
-    let size = NSSize(width: 600, height: 660)
+    let size = NSSize(width: 600, height: 660)      // the top panel (Control-Option-P)
+    let sideWidth: CGFloat = 440                     // the side panel (from the tab)
+    var side = false                                 // which of the two the panel is showing as
+    var tabPanel: NSPanel!
+    var tabView: TabView!
+    let tabSize = NSSize(width: 34, height: 142)
+    var hiddenAt = Date.distantPast
 
     let defaults = UserDefaults.standard
     // The Precedents site (change with: defaults write au.greenshoot.precedents siteURL https://...).
     var siteURL: URL { URL(string: defaults.string(forKey: "siteURL") ?? defaultSite)! }
+    // The tab: shown or not (menu bar), and how far below the top of the screen it sits (drag it to change).
+    var tabShown: Bool {
+        get { defaults.object(forKey: "tabShown") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "tabShown") }
+    }
+    var tabTop: CGFloat {
+        get { defaults.object(forKey: "tabTop") as? CGFloat ?? 220 }
+        set { defaults.set(newValue, forKey: "tabTop") }
+    }
+    var tabScreen: NSScreen { NSScreen.screens.first ?? NSScreen.main! }   // the screen with the menu bar
 
     // Images being dragged out are fetched first into the app's cache, so the drag is a real file.
     lazy var cacheDir: URL = {
@@ -50,8 +173,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     func applicationDidFinishLaunching(_ note: Notification) {
         buildPanel()
+        buildTab()
         buildMenu()
         registerHotKeys()
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let me = self else { return }
+            me.placeTab()
+            if me.side && me.panel.isVisible { me.placeSide() }
+        }
+    }
+
+    func buildTab() {
+        tabPanel = NSPanel(contentRect: NSRect(origin: .zero, size: tabSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        tabPanel.isFloatingPanel = true
+        tabPanel.level = .floating
+        tabPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        tabPanel.backgroundColor = .clear
+        tabPanel.isOpaque = false
+        tabPanel.hasShadow = true
+        tabPanel.hidesOnDeactivate = false
+        tabView = TabView(frame: NSRect(origin: .zero, size: tabSize))
+        tabPanel.contentView = tabView
+        tabView.onClick = { [weak self] in self?.tabClicked() }
+        tabView.onDrag = { [weak self] dy in
+            guard let me = self else { return }
+            let vf = me.tabScreen.visibleFrame
+            me.tabTop = min(max(me.tabTop + dy, 0), vf.height - me.tabSize.height)
+            me.placeTab()
+            if me.side && me.panel.isVisible { me.placeSide() }
+        }
+        tabView.onDrop = { [weak self] imgs in self?.sendDropped(imgs) }
+        placeTab()
+        if tabShown { tabPanel.orderFrontRegardless() }
+    }
+
+    func placeTab() {
+        let vf = tabScreen.visibleFrame
+        let top = min(max(tabTop, 0), vf.height - tabSize.height)
+        tabPanel.setFrame(NSRect(x: vf.maxX - tabSize.width, y: vf.maxY - top - tabSize.height, width: tabSize.width, height: tabSize.height), display: true)
+    }
+
+    // The side panel: beside the tab, as tall as the screen allows, centred on the tab.
+    func placeSide() {
+        let vf = tabScreen.visibleFrame
+        let h = min(vf.height - 20, 900)
+        var y = tabPanel.frame.midY - h / 2
+        y = min(max(y, vf.minY + 10), vf.maxY - 10 - h)
+        panel.setFrame(NSRect(x: vf.maxX - tabSize.width - sideWidth - 6, y: y, width: sideWidth, height: h), display: true)
+    }
+
+    func tabClicked() {
+        if panel.isVisible && side { hidePanel(); return }
+        if Date().timeIntervalSince(hiddenAt) < 0.35 && side { return }   // that click is what just closed it
+        show(side: true)
+    }
+
+    @objc func toggleTab(_ sender: NSMenuItem) {
+        tabShown.toggle()
+        sender.state = tabShown ? .on : .off
+        if tabShown { placeTab(); tabPanel.orderFrontRegardless() } else {
+            if side && panel.isVisible { hidePanel() }
+            tabPanel.orderOut(nil)
+        }
+    }
+
+    // Images dropped on the tab go to the inbox, through the same send form as a screenshot.
+    func sendDropped(_ imgs: [NSImage]) {
+        let encs = imgs.prefix(8).compactMap { encodeImage($0) }
+        guard !encs.isEmpty else { return }
+        show(side: true)
+        js("pr.shot(\(jsonString(["images": encs])))")
     }
 
     func buildPanel() {
@@ -111,6 +302,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             return i
         }
         _ = add("Find a precedent", #selector(showPanel), "p")
+        let tabItem = add("Show the Precedents tab", #selector(toggleTab(_:)))
+        tabItem.state = tabShown ? .on : .off
         _ = add("Send a screenshot", #selector(takeScreenshot), "o")
         menu.addItem(.separator())
         _ = add("Open the library", #selector(openLibrary))
@@ -151,20 +344,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     // MARK: Showing and hiding
 
-    @objc func showPanel() {
+    @objc func showPanel() { show(side: false) }
+
+    // side: beside the tab on the right edge; otherwise the panel near the top of the screen (Control-Option-P).
+    func show(side wantSide: Bool) {
         if let f = NSWorkspace.shared.frontmostApplication, f.processIdentifier != getpid() { previousApp = f }
-        if !panel.isVisible { place() }
+        let changed = wantSide != side
+        side = wantSide
+        js("pr.setMode('\(wantSide ? "side" : "top")')")
+        if wantSide { placeSide() } else if !panel.isVisible || changed { place() }
         panel.makeKeyAndOrderFront(nil)
+        tabView?.isOpen = wantSide
         js("pr.focus()")
     }
 
     func hidePanel() {
         panel.orderOut(nil)
+        tabView?.isOpen = false
+        hiddenAt = Date()
         previousApp?.activate()
     }
 
     // Centred near the top of the screen with the mouse, or where it was left when pinned.
     func place() {
+        panel.setContentSize(size)
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main!
         let vf = screen.visibleFrame
         if pinned, let s = defaults.string(forKey: "pinnedOrigin") {
@@ -176,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     // Click away and it hides, unless pinned (or while an image is being dragged out).
     func windowDidResignKey(_ notification: Notification) {
-        if !pinned && !dragging { panel.orderOut(nil) }
+        if !pinned && !dragging { panel.orderOut(nil); tabView?.isOpen = false; hiddenAt = Date() }
     }
 
     // MARK: Messages from the panel page
@@ -187,13 +390,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "ready":
             ready = true
             js("pr.setPinned(\(pinned))")
+            js("pr.setMode('\(side ? "side" : "top")')")
             pendingJS.forEach { web.evaluateJavaScript($0) }
             pendingJS.removeAll()
         case "hide": hidePanel()
         case "pin":
             pinned = (m["on"] as? Bool) ?? false
-            if pinned { defaults.set(NSStringFromPoint(panel.frame.origin), forKey: "pinnedOrigin") }
+            if pinned && !side { defaults.set(NSStringFromPoint(panel.frame.origin), forKey: "pinnedOrigin") }
         case "move":
+            if side { break }                          // the side panel stays beside the tab (drag the tab instead)
             let dx = (m["dx"] as? NSNumber)?.doubleValue ?? 0, dy = (m["dy"] as? NSNumber)?.doubleValue ?? 0
             var o = panel.frame.origin
             o.x += dx; o.y -= dy

@@ -64,7 +64,32 @@ main { flex: 1; overflow-y: auto; }
 .toast { position: absolute; left: 50%; bottom: 48px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 7px 12px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
 .toast button { background: none; border: 0; color: #9cc3e6; text-decoration: underline; padding: 0 0 0 8px; }
 .big { position: absolute; inset: 0; background: rgba(21,25,28,.94); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 14px; z-index: 5; }
-.big img { max-width: 100%; max-height: calc(100% - 90px); object-fit: contain; cursor: grab; } .big p { color: #e9e7df; margin: 0; font-size: 12px; text-align: center; }
+.big img { max-width: 100%; max-height: calc(100% - 90px); object-fit: contain; cursor: grab; }
+.big .bstage img { max-height: 100%; } .big p { color: #e9e7df; margin: 0; font-size: 12px; text-align: center; }
 .shots { display: flex; gap: 6px; flex-wrap: wrap; } .shots .shotprev { max-height: 150px; max-width: 48%; }
 .shell.dropping::after { content: "Drop to send to the Precedents inbox"; position: absolute; inset: 44px 10px 10px; border: 2px dashed var(--accent); border-radius: 10px;
   background: rgba(230,238,245,.92); display: grid; place-items: center; font-weight: 600; color: var(--accent); z-index: 6; }
+
+/* The big view: previous / next through a precedent's images */
+.big .bhead { display: flex; gap: 10px; align-items: baseline; color: #e9e7df; font-size: 12px; max-width: 100%; }
+.big .bhead b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .big .bhead span { color: #9aa3a8; font: 11px var(--mono); white-space: nowrap; }
+.big .bstage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.big .bstage img { max-height: 100%; min-width: 0; }
+.big .nav { flex: none; width: 34px; height: 54px; border: 0; border-radius: 6px; background: rgba(255,255,255,.1); color: #fff; font-size: 26px; line-height: 1; }
+.big .nav:hover { background: var(--accent); }
+.big:focus { outline: none; }
+.meta a { color: var(--accent); }
+
+/* Side panel (opened from the tab on the right edge): tall and narrow, attached to the tab */
+body.side .shell { border-radius: 12px; }
+body.side .top { -webkit-app-region: no-drag; cursor: default; }
+body.side .sbox input { font-size: 15px; }
+body.side .grid { grid-template-columns: repeat(2, 1fr); }
+body.side .th { width: 64px; height: 64px; }
+body.side .rt b { font-size: 13.5px; }
+body.side .n { display: none; }
+body.side .hint { display: none; }
+body.side .foot { justify-content: flex-end; }
+/* The search box stays at the top while the results scroll */
+.search { position: sticky; top: 0; z-index: 2; }
+.big { background: #15191c; }

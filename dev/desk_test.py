@@ -41,6 +41,27 @@ with sync_playwright() as p:
     pg.fill("#sn", "Site visit"); pg.click("#sendshot .btn.primary"); pg.wait_for_selector("#toast:has-text('Sent')")
     it = json.load(urllib.request.urlopen(req))["items"][0]
     check(len(it["uploads"]) == 2 and it["note"] == "Site visit", "dropped images sent to the inbox")
+
+    # the side panel (opened from the tab on the right edge): tall and narrow
+    sp = b.new_page(viewport={"width": 440, "height": 880})
+    sp.on("pageerror", lambda e: errors.append(f"page error (side): {e}"))
+    sp.goto(BASE + "/desk.html"); sp.evaluate("localStorage.setItem('gp_pw','test'); localStorage.setItem('gp_name','Ed')")
+    sp.goto(BASE + "/desk.html?mode=side"); sp.wait_for_selector(".res")
+    check(sp.evaluate("document.body.classList.contains('side')"), "side layout on")
+    sp.fill("#q", "stone"); sp.wait_for_timeout(150)
+    check(sp.locator(".res").count() == 2, f"a material finds its precedents ({sp.locator('.res').count()})")
+    sp.fill("#q", "woven fibre screen with steel frame"); sp.wait_for_timeout(150)
+    check("close" in sp.inner_text(".meta") and sp.locator(".res").count() >= 1, "a description shows close matches")
+    check(sp.locator(".res").first.locator("b").first.inner_text() == "Weave Screen House", "closest first")
+    sp.fill("#q", "boardwalk"); sp.wait_for_timeout(150); sp.keyboard.press("Enter") if False else sp.click(".row")
+    sp.wait_for_selector(".im"); check(sp.locator(".im").count() == 5, "opened: its images, two across")
+    sp.screenshot(path=sys.argv[2] + "/desk_side.png") if len(sys.argv) > 2 else None
+    sp.locator(".im img").first.click(); sp.wait_for_selector(".big")
+    check("1 of 5" in sp.inner_text(".big .bhead"), "big view shows 1 of 5")
+    sp.keyboard.press("ArrowRight"); check("2 of 5" in sp.inner_text(".big .bhead"), "arrow key goes to the next image")
+    sp.click("#bp"); sp.click("#bp"); check("5 of 5" in sp.inner_text(".big .bhead"), "previous wraps round")
+    sp.screenshot(path=sys.argv[2] + "/desk_side_big.png") if len(sys.argv) > 2 else None
+    sp.evaluate("pr.setMode('top')"); check(not sp.evaluate("document.body.classList.contains('side')"), "the app can switch it back to the top panel")
     b.close()
 print("\n" + ("ALL PASSED" if not errors else f"{len(errors)} FAILED: " + "; ".join(errors)))
 sys.exit(1 if errors else 0)
