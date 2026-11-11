@@ -9,6 +9,7 @@ import { draftRules, draftSchema } from "../lib/prompts.mjs";
 import { getFacets } from "../lib/categories.mjs";
 import { isFirstPeoples } from "../lib/vocab.mjs";
 import { fetchImage } from "../lib/fetchimage.mjs";
+import { nameFromFile } from "../lib/filename.mjs";
 
 const OK_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_IMG = 3_500_000, MAX_IMAGES = 8;
@@ -55,6 +56,8 @@ export default handle(async (req) => {
   }
 
   const ownCount = (item.uploads || []).filter(x => !x.credit).length;
+  const fileNames = [...new Set((item.uploads || []).map(u => nameFromFile(u.name)).filter(Boolean))];
+  if (!item.title && !item.url && fileNames.length) item.title = fileNames.join("; ").slice(0, 300);   // items sent before titles came from file names
   const text = [
     item.url && `PAGE: ${item.url}`, (meta?.title || item.title) && `TITLE: ${meta?.title || item.title}`,
     (meta?.site || item.site) && `SITE: ${meta?.site || item.site}`, (meta?.author || item.author) && `AUTHOR: ${meta?.author || item.author}`,
@@ -63,6 +66,7 @@ export default handle(async (req) => {
     item.text && `TEXT THE SENDER HIGHLIGHTED:\n${item.text.slice(0, 8000)}`,
     meta?.text && `PAGE TEXT:\n${meta.text.slice(0, 9000)}`,
     ownCount && `The first ${ownCount} image(s) are the sender's own photos or screenshots.`,
+    fileNames.length && `IMAGE FILE NAMES, as the sender saved them: ${fileNames.map(n => `"${n}"`).join("; ")}. People usually name files after the project, often with the designer after a dash ("Project Name - Designer"). Treat a descriptive file name as the project's name (and designer) unless the images clearly contradict it.`,
     item.site === "Instagram" && `This came from an Instagram post: the caption is the account's own words, so treat claims in it with care.`,
     `There are ${seen.length} image(s), in order.`,
   ].filter(Boolean).join("\n\n");

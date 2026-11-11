@@ -305,3 +305,5 @@ body.capture { background: var(--paper); }
 .cats .chip.added { border-color: var(--accent); }
 .cats .chip .x { border: 0; background: none; cursor: pointer; color: #8a2b2b; font-size: 1rem; line-height: 1; padding: 0 0 0 2px; }
 .addv { display: flex; gap: 6px; max-width: 420px; } .addv input { flex: 1; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.split { padding: 8px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); font-size: .86rem; }
+.split ul { margin: 6px 0 0; padding-left: 20px; } .split li { margin: 2px 0; }

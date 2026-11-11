@@ -11,6 +11,7 @@
 import { randomBytes } from "node:crypto";
 import { requireAuth, json, handle, userName } from "../lib/server.mjs";
 import { store } from "../lib/blobs.mjs";
+import { nameFromFile } from "../lib/filename.mjs";
 
 const s = (v, n) => String(v ?? "").slice(0, n);
 const TYPES = { "image/jpeg": "jpg", "image/png": "png" };
@@ -63,6 +64,8 @@ export default handle(async (req) => {
     };
     const err = await addUploads(files, item, ups);
     if (err) return err;
+    // Photos only, no title: the file name often says what it is ("Mount Archer Treetop Boardwalk.jpeg").
+    if (!item.title && !item.url) item.title = [...new Set(item.uploads.map(u => nameFromFile(u.name)).filter(Boolean))].join("; ").slice(0, 300);
     await box.setJSON(id, item);
     return json({ item });
   }

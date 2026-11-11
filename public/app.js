@@ -3,6 +3,7 @@
 // someone approves (inbox) or saves an edit, which commits to the data repo.
 import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText } from "./util.js";
 import { bookmarklet } from "./bookmarklet.js";
+import { nameFromFile } from "./filename.js";
 
 const st = {
   cfg: null, records: [], inbox: [],
@@ -341,10 +342,10 @@ async function sendToInbox(body, files = [], webImgs = []) {
 }
 
 // A photo drop zone: files, pasted screenshots and images dragged from other web pages (up to 8 in all).
-function photoPicker(drop, input, list) {
+function photoPicker(drop, input, list, onChange) {
   let files = [], webImgs = [];
-  const show = () => { list.innerHTML = files.map(f => `<span>${esc(f.name || "pasted image")}</span>`).join("") + webImgs.map(u => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join(""); };
-  const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 8 - webImgs.length); show(); };
+  const show = () => { setTimeout(() => onChange?.(), 0); list.innerHTML = files.map(f => `<span>${esc(f.name || "pasted image")}</span>`).join("") + webImgs.map(u => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join(""); };
+  const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 20 - webImgs.length); show(); };
   input.onchange = () => add(input.files);
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
@@ -355,7 +356,7 @@ function photoPicker(drop, input, list) {
     // An image dragged from another web page arrives as its address.
     const html = dt.getData("text/html"), m = html && html.match(/<img[^>]+src=["']([^"']+)/i);
     const u = (m && m[1]) || dt.getData("text/uri-list").split("\n").find(l => /^https?:/.test(l.trim())) || "";
-    if (/^https?:/.test(u.trim())) { webImgs = [...new Set([...webImgs, u.trim()])].slice(0, 8 - files.length); show(); }
+    if (/^https?:/.test(u.trim())) { webImgs = [...new Set([...webImgs, u.trim()])].slice(0, 20 - files.length); show(); }
     else toast("That didn't come through as an image. Try saving it and dropping the file.");
   };
   const onPaste = e => { if (!document.body.contains(drop)) return stop(); const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); add(f); } };
@@ -517,12 +518,14 @@ async function openReview(item) {
   const dupes = (d.duplicates || []).filter(x => byId(x.id));
   box.innerHTML = `${sourceStrip(item)}
     ${dupes.length ? `<div class="dupes"><b>Possibly already in the library:</b> ${dupes.map(x => `<span><a href="#/p/${x.id}" target="_blank">${x.id} ${esc(byId(x.id).name)}</a> <em>(${esc(x.why)})</em> <button class="link" data-merge="${x.id}">Add to this one instead</button></span>`).join(" ")}</div>` : ""}
-    <div class="addto-row"><button class="btn" id="pick-existing">Add to an existing precedent...</button><span class="muted small">If this is already in the library, choose it: Groundwork reads both and proposes what to add.</span></div>
+    <div class="addto-row"><button class="btn" id="pick-existing">Add to an existing precedent...</button><span class="muted small">If this is already in the library, choose it: Groundwork reads both and proposes what to add.</span>
+      <button class="link" id="redraft" title="Throw this draft away and have Groundwork draft it again">Draft again</button></div>
     ${d.notes || d.confidence === "low" ? `<div class="note-box"><b>Check:</b> ${esc(d.notes || "Groundwork wasn't confident about this draft.")}</div>` : ""}
     <div id="form-host"></div>`;
   const form = editorForm({ record: d.record, draftImages: d.images, item });
   document.getElementById("form-host").append(form.el);
   box.querySelectorAll("[data-merge]").forEach(b => b.onclick = () => form.mergeWith(b.dataset.merge));
+  document.getElementById("redraft").onclick = () => { if (!confirm("Draft this again from scratch? Changes you've made here will be lost.")) return; item.draft = null; item.checked = false; openReview(item); };
   document.getElementById("pick-existing").onclick = async () => {
     const id = await pickPrecedent(d.record);
     if (id) form.mergeWith(id);
@@ -897,9 +900,10 @@ function renderAdd() {
       </form>
       <form class="panel" id="by-photos">
         <h2>Photos and images</h2>
-        <label class="drop" id="drop"><input type="file" accept="image/*" multiple hidden id="files"><span><b>Drop photos or images here</b>, paste a screenshot (Cmd/Ctrl+V), or click to choose<br><em>Drag images straight from another web page too. Up to 8 at a time. Works from a phone.</em></span></label>
+        <label class="drop" id="drop"><input type="file" accept="image/*" multiple hidden id="files"><span><b>Drop photos or images here</b>, paste a screenshot (Cmd/Ctrl+V), or click to choose<br><em>Drag images straight from another web page too. Up to 20 at a time. Works from a phone.</em></span></label>
         <div class="drop-list" id="drop-list"></div>
-        <label class="fl long"><span>Which project is this? <em>optional: if you leave it blank, Groundwork tries to identify it online</em></span><input name="note" placeholder="e.g. Bunjil Place forecourt, Narre Warren. Site visit Nov 2026"></label>
+        <div class="split" id="split" hidden></div>
+        <label class="fl long"><span>Which project is this? <em>optional: a descriptive file name ("Project Name - Designer.jpg") works too</em></span><input name="note" placeholder="e.g. Bunjil Place forecourt, Narre Warren. Site visit Nov 2026"></label>
         <button class="btn primary">Send to the inbox</button>
       </form>
     </div>
@@ -917,15 +921,36 @@ function renderAdd() {
       await loadInbox(); toast("Sent to the inbox"); e.target.reset();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
   };
-  const pick = photoPicker(document.getElementById("drop"), document.getElementById("files"), document.getElementById("drop-list"));
+  // Photos named after different projects ("Granite Island Causeway - TRACT.webp", "Mount Archer Treetop
+  // Boardwalk.jpeg") are offered as separate precedents, one per name.
+  const splitBox = document.getElementById("split");
+  const groups = () => {
+    const g = new Map();
+    for (const f of pick.files()) { const n = nameFromFile(f.name); const k = n.toLowerCase(); if (!g.has(k)) g.set(k, { name: n, files: [] }); g.get(k).files.push(f); }
+    return [...g.values()];
+  };
+  const showSplit = () => {
+    const g = groups(), ok = g.length > 1 && g.every(x => x.name) && !pick.webImgs().length;
+    splitBox.hidden = !ok;
+    if (ok) splitBox.innerHTML = `<label class="check"><input type="checkbox" id="split-on" checked> Send as ${g.length} separate precedents, one per file name</label>
+      <ul>${g.map(x => `<li>${esc(x.name)} <span class="muted">${x.files.length} photo${x.files.length > 1 ? "s" : ""}</span></li>`).join("")}</ul>`;
+  };
+  const pick = photoPicker(document.getElementById("drop"), document.getElementById("files"), document.getElementById("drop-list"), showSplit);
   document.getElementById("by-photos").onsubmit = async e => {
     e.preventDefault();
     if (!pick.count()) return toast("Add some photos or images first");
     const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Sending...";
     try {
       const note = new FormData(e.target).get("note") || "";
-      await sendToInbox({ note, title: note }, pick.files(), pick.webImgs());
-      await loadInbox(); toast("Photos sent to the inbox"); pick.clear(); e.target.reset();
+      const g = groups();
+      if (!splitBox.hidden && document.getElementById("split-on")?.checked) {
+        for (const [n, x] of g.entries()) { btn.textContent = `Sending ${n + 1} of ${g.length}...`; await sendToInbox({ note, title: x.name }, x.files, []); }
+        await loadInbox(); toast(`${g.length} precedents sent to the inbox`);
+      } else {
+        await sendToInbox({ note, title: note }, pick.files(), pick.webImgs());
+        await loadInbox(); toast("Photos sent to the inbox");
+      }
+      pick.clear(); e.target.reset(); showSplit();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";
   };

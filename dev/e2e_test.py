@@ -264,7 +264,7 @@ with sync_playwright() as p:
     pg.click("#by-photos button.primary"); pg.wait_for_selector("#toast:has-text('Photos sent'), #toast:has-text('send')")
     check("Photos sent" in pg.locator("#toast").inner_text(), "site photos sent: " + pg.locator("#toast").inner_text())
     newest = json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/inbox", headers={"x-app-password": "test"})))["items"][0]
-    check(len(newest.get("uploads", [])) == 7 and len(newest.get("images", [])) == 1, f"7 photos (in parts) and the dragged web image arrived ({len(newest.get('uploads', []))})")
+    check(len(newest.get("uploads", [])) == 8 and len(newest.get("images", [])) == 1, f"8 photos (in parts) and the dragged web image arrived ({len(newest.get('uploads', []))})")
 
     # capture window from the bookmark button
     cap = b.new_page(viewport={"width": 560, "height": 780}, device_scale_factor=2)
@@ -317,6 +317,33 @@ with sync_playwright() as p:
     check(pg.locator(".chip:has-text('Neon')").count() == 0, "an unused added value can be removed")
     check(pg.locator(".chip:has-text('Shell + Bone') .x").count() == 0, "a value in use can't be removed")
     pg.screenshot(path=f"{OUT}/19_categories.png", full_page=True)
+
+    # photos named after their projects: one precedent per name, titled from the file name, and Groundwork reads it
+    a = open(f"{RUN}/fake-site/a.jpg", "rb").read(); bimg = open(f"{RUN}/fake-site/b.jpg", "rb").read()
+    pg.goto(BASE + "/#/add"); pg.wait_for_selector("#by-photos")
+    before = len(json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/inbox", headers={"x-app-password": "test"})))["items"])
+    pg.set_input_files("#files", [
+        {"name": "Granite island Causeway - TRACT.jpg", "mimeType": "image/jpeg", "buffer": a},
+        {"name": "Granite island Causeway - TRACT 2.jpg", "mimeType": "image/jpeg", "buffer": bimg},
+        {"name": "Mount Archer Treetop Boardwalk.jpeg", "mimeType": "image/jpeg", "buffer": a}])
+    pg.wait_for_selector("#split:not([hidden])")
+    check("2 separate precedents" in pg.inner_text("#split") and "Granite island Causeway - TRACT 2 photos" in pg.inner_text("#split").replace("\n", " "), "offers one precedent per file name (numbered copies grouped)")
+    pg.screenshot(path=f"{OUT}/20_split.png")
+    pg.click("#by-photos button.primary"); pg.wait_for_selector("#toast:has-text('2 precedents sent')", timeout=30000)
+    items = json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/inbox", headers={"x-app-password": "test"})))["items"]
+    new_items = items[:len(items) - before]
+    titles = sorted(i["title"] for i in new_items)
+    check(titles == ["Granite island Causeway - TRACT", "Mount Archer Treetop Boardwalk"] and sorted(len(i["uploads"]) for i in new_items) == [1, 2], f"two inbox items, titled from the file names ({titles})")
+    # one photo sent with no title (e.g. from the Mac panel): the server takes the title from its file name
+    one = post("/api/inbox", {"from": "mac", "uploads": [{"data": __import__("base64").b64encode(a).decode(), "type": "image/jpeg", "name": "Jock Marshall Reserve Nature Walk - Urban Initiatives.jpeg"}]})["item"]
+    check(one["title"] == "Jock Marshall Reserve Nature Walk - Urban Initiatives", "server titles a photo from its file name")
+    cam = post("/api/inbox", {"from": "mac", "uploads": [{"data": __import__("base64").b64encode(a).decode(), "type": "image/jpeg", "name": "IMG_4821.jpg"}]})["item"]
+    check(cam["title"] == "", "camera file names are ignored")
+    post("/api/draft", {"id": one["id"]})
+    log = json.load(urllib.request.urlopen(BASE + "/__claude"))
+    check('IMAGE FILE NAMES' in log[-1]["text"] and "Jock Marshall Reserve Nature Walk - Urban Initiatives" in log[-1]["text"], "Groundwork is given the file name when drafting")
+    pub = open("public/filename.js").read(); srv = open("netlify/lib/filename.mjs").read().split("\n", 1)[1]
+    check(pub == srv, "the site's and the server's file-name rules are the same")
 
     # phone width
     ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)

@@ -20,6 +20,9 @@ own site photos, perhaps with a note. Draft ONE precedent record for the project
 Rules:
 - Use only what the material says or what is plainly visible in the images. Never invent names, dates, designers,
   awards or Traditional Owner groups. Leave a field empty ("") when it is not known.
+- If the material is only images, the IMAGE FILE NAMES are your best clue: use them for name and designer (keep the
+  name, tidy its capitalisation; "Granite island Causeway - TRACT" is name "Granite Island Causeway", designer TRACT).
+  Then fill only what you know or can plainly see; leave the rest for Check and fill online.
 - name: consistent naming matters. Use the project's official name as its designers or owner publish it, in title
   case, without the practice name, the city or words like "project" (e.g. "Ceremonial Fire Dish at Queen & Collins",
   not "Greenaway Architects | Fire dish project Melbourne"). If it has no proper name, a short descriptive name with

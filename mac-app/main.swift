@@ -29,7 +29,7 @@ final class FloatingPanel: NSPanel {
 final class TabView: NSView {
     var onClick: (() -> Void)?
     var onDrag: ((CGFloat) -> Void)?
-    var onDrop: (([NSImage]) -> Void)?
+    var onDrop: (([(NSImage, String)]) -> Void)?     // each image with its file name ("" if dragged from an app)
     var isOpen = false { didSet { needsDisplay = true } }
     var hovering = false { didSet { needsDisplay = true } }
     var dropping = false { didSet { needsDisplay = true } }
@@ -121,10 +121,10 @@ final class TabView: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         dropping = false
         let pb = sender.draggingPasteboard
-        var imgs = imageURLs(pb).prefix(20).compactMap { NSImage(contentsOf: $0) }
-        if imgs.isEmpty, let i = NSImage(pasteboard: pb) { imgs = [i] }
+        var imgs: [(NSImage, String)] = imageURLs(pb).prefix(20).compactMap { u in NSImage(contentsOf: u).map { ($0, u.lastPathComponent) } }
+        if imgs.isEmpty, let i = NSImage(pasteboard: pb) { imgs = [(i, "")] }
         if imgs.isEmpty { return false }
-        onDrop?(Array(imgs))
+        onDrop?(imgs)
         return true
     }
 }
@@ -252,8 +252,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     // Images dropped on the tab go to the inbox, through the same send form as a screenshot.
-    func sendDropped(_ imgs: [NSImage]) {
-        let encs = imgs.prefix(20).compactMap { encodeImage($0) }
+    func sendDropped(_ imgs: [(NSImage, String)]) {
+        let encs: [[String: String]] = imgs.prefix(20).compactMap { pair in
+            guard var e = encodeImage(pair.0) else { return nil }
+            if !pair.1.isEmpty { e["name"] = pair.1 }      // the file name often names the project
+            return e
+        }
         guard !encs.isEmpty else { return }
         show(side: true)
         js("pr.shot(\(jsonString(["images": encs])))")
