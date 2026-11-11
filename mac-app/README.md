@@ -5,6 +5,10 @@ beside it; drag it up or down to move it; drop images on it to send them to the 
 bar icon (Show the Precedents tab). In the panel, click an image to see it large, then ‹ › or the arrow keys go
 through that precedent's images.
 
+**Bigger:** drag the corner of the top panel or the left edge of the side panel to resize it (sizes are kept). The ⤢
+button (or Open as a window in the menu bar) opens it as a normal window you can resize or make full screen; ⤡ Panel
+or closing the window puts it back in the panel.
+
 A small Mac app for Greenshoot's Precedents library. Separate from Groundwork Capture (the mapping tools' widget).
 
 - **Control-Option-P** (or the menu bar icon > Find a precedent): a search panel appears over whatever you're working

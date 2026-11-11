@@ -139,8 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var pinned = false
     var dragging = false
     var previousApp: NSRunningApplication?
-    let size = NSSize(width: 600, height: 660)      // the top panel (Control-Option-P)
-    let sideWidth: CGFloat = 440                     // the side panel (from the tab)
+    var appWindow: NSWindow?                         // the panel opened as a normal window (⤢), resizable, full screen
+    var windowed: Bool { appWindow?.isVisible == true || appWindow?.isMiniaturized == true }
     var side = false                                 // which of the two the panel is showing as
     var tabPanel: NSPanel!
     var tabView: TabView!
@@ -160,6 +160,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         set { defaults.set(newValue, forKey: "tabTop") }
     }
     var tabScreen: NSScreen { NSScreen.screens.first ?? NSScreen.main! }   // the screen with the menu bar
+    // Panel sizes, kept when you resize them (drag the corner of the top panel, or the left edge of the side panel).
+    var size: NSSize {
+        get {
+            if let s = defaults.string(forKey: "topSize") { let z = NSSizeFromString(s); if z.width >= 420 && z.height >= 400 { return z } }
+            return NSSize(width: 600, height: 660)
+        }
+        set { defaults.set(NSStringFromSize(newValue), forKey: "topSize") }
+    }
+    var sideWidth: CGFloat {
+        get { defaults.object(forKey: "sideWidth") as? CGFloat ?? 440 }
+        set { defaults.set(newValue, forKey: "sideWidth") }
+    }
 
     // Images being dragged out are fetched first into the app's cache, so the drag is a real file.
     lazy var cacheDir: URL = {
@@ -175,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         buildPanel()
         buildTab()
         buildMenu()
+        buildMainMenu()
         registerHotKeys()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             guard let me = self else { return }
@@ -223,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func tabClicked() {
+        if windowed { show(side: true); return }      // open as a window: the tab brings it to the front
         if panel.isVisible && side { hidePanel(); return }
         if Date().timeIntervalSince(hiddenAt) < 0.35 && side { return }   // that click is what just closed it
         show(side: true)
@@ -302,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             return i
         }
         _ = add("Find a precedent", #selector(showPanel), "p")
+        _ = add("Open as a window", #selector(openWindow))
         let tabItem = add("Show the Precedents tab", #selector(toggleTab(_:)))
         tabItem.state = tabShown ? .on : .off
         _ = add("Send a screenshot", #selector(takeScreenshot), "o")
@@ -338,7 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func hotKey(_ id: Int) {
-        if id == 1 { (panel.isVisible && panel.isKeyWindow) ? hidePanel() : showPanel() }
+        if id == 1 { (!windowed && panel.isVisible && panel.isKeyWindow) ? hidePanel() : showPanel() }
         if id == 2 { takeScreenshot() }
     }
 
@@ -348,6 +363,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     // side: beside the tab on the right edge; otherwise the panel near the top of the screen (Control-Option-P).
     func show(side wantSide: Bool) {
+        if let w = appWindow, windowed {
+            if w.isMiniaturized { w.deminiaturize(nil) }
+            NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil); js("pr.focus()"); return
+        }
         if let f = NSWorkspace.shared.frontmostApplication, f.processIdentifier != getpid() { previousApp = f }
         let changed = wantSide != side
         side = wantSide
@@ -379,7 +398,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     // Click away and it hides, unless pinned (or while an image is being dragged out).
     func windowDidResignKey(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === panel else { return }
         if !pinned && !dragging { panel.orderOut(nil); tabView?.isOpen = false; hiddenAt = Date() }
+    }
+
+    // MARK: Resizing, and opening as a normal window
+
+    // The top panel grows from its bottom-right corner; the side panel from its left edge (it stays beside the tab).
+    func resizePanel(dx: Double, dy: Double) {
+        if windowed { return }
+        var f = panel.frame
+        if side {
+            let vf = tabScreen.visibleFrame
+            sideWidth = min(max(f.width - CGFloat(dx), 340), vf.width - tabSize.width - 40)
+            placeSide()
+        } else {
+            let vf = (panel.screen ?? NSScreen.main!).visibleFrame
+            let w = min(max(f.width + CGFloat(dx), 420), vf.width), h = min(max(f.height + CGFloat(dy), 400), vf.height)
+            f.origin.y = f.maxY - h
+            f.size = NSSize(width: w, height: h)
+            panel.setFrame(f, display: true)
+            size = f.size
+        }
+    }
+
+    // The same page in a normal Mac window: resize it, make it full screen, Command-Tab to it. Closing it (or ⤡)
+    // puts it back in the panel. While it's open, Precedents shows in the Dock.
+    @objc func openWindow() {
+        if appWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 820),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            w.title = "Precedents"
+            w.isReleasedWhenClosed = false
+            w.minSize = NSSize(width: 520, height: 480)
+            w.collectionBehavior = [.fullScreenPrimary]
+            w.delegate = self
+            if !w.setFrameUsingName("PrecedentsWindow") { w.center() }
+            w.setFrameAutosaveName("PrecedentsWindow")
+            appWindow = w
+        }
+        guard let w = appWindow else { return }
+        panel.orderOut(nil)
+        tabView?.isOpen = false
+        panel.contentView = NSView()
+        w.contentView = web
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        js("pr.setMode('window')")
+        js("pr.focus()")
+    }
+
+    @objc func backToPanelAction() { backToPanel(closing: false) }
+
+    func backToPanel(closing: Bool) {
+        guard let w = appWindow, w.contentView === web else { return }
+        if w.styleMask.contains(.fullScreen) && !closing { w.toggleFullScreen(nil) }
+        w.contentView = NSView()
+        panel.contentView = web
+        if !closing { w.orderOut(nil) }
+        NSApp.setActivationPolicy(.accessory)
+        js("pr.setMode('\(side ? "side" : "top")')")
+        if !closing { show(side: side) }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if (notification.object as? NSWindow) === appWindow { backToPanel(closing: true) }
+    }
+
+    // A menu bar for when it's a normal window (Edit for copy and paste in the search box; Window for close, minimise
+    // and full screen). An accessory app shows no menu bar, so this only appears while the window is open.
+    func buildMainMenu() {
+        let main = NSMenu()
+        let appItem = NSMenuItem(); main.addItem(appItem)
+        let appMenu = NSMenu()
+        let back = NSMenuItem(title: "Back to the panel", action: #selector(backToPanelAction), keyEquivalent: "")
+        back.target = self
+        appMenu.addItem(back)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide Precedents", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Quit Precedents", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        let editItem = NSMenuItem(); main.addItem(editItem)
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+        let winItem = NSMenuItem(); main.addItem(winItem)
+        let win = NSMenu(title: "Window")
+        win.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        win.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        let fs = NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fs.keyEquivalentModifierMask = [.command, .control]
+        win.addItem(fs)
+        winItem.submenu = win
+        NSApp.mainMenu = main
+        NSApp.windowsMenu = win
     }
 
     // MARK: Messages from the panel page
@@ -393,12 +512,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             js("pr.setMode('\(side ? "side" : "top")')")
             pendingJS.forEach { web.evaluateJavaScript($0) }
             pendingJS.removeAll()
-        case "hide": hidePanel()
+        case "hide": if !windowed { hidePanel() }
         case "pin":
             pinned = (m["on"] as? Bool) ?? false
             if pinned && !side { defaults.set(NSStringFromPoint(panel.frame.origin), forKey: "pinnedOrigin") }
+        case "window":
+            if (m["on"] as? Bool) == true { openWindow() } else { backToPanel(closing: false) }
+        case "resize":
+            resizePanel(dx: (m["dx"] as? NSNumber)?.doubleValue ?? 0, dy: (m["dy"] as? NSNumber)?.doubleValue ?? 0)
         case "move":
-            if side { break }                          // the side panel stays beside the tab (drag the tab instead)
+            if side || windowed { break }                          // the side panel stays beside the tab (drag the tab instead)
             let dx = (m["dx"] as? NSNumber)?.doubleValue ?? 0, dy = (m["dy"] as? NSNumber)?.doubleValue ?? 0
             var o = panel.frame.origin
             o.x += dx; o.y -= dy

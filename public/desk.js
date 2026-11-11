@@ -13,8 +13,16 @@ const ls = { get(k) { try { return localStorage.getItem(k) || ""; } catch { retu
 
 let auth = { pw: ls.get("gp_pw"), name: ls.get("gp_name") };
 let lib = { records: [], token: "" }, q = "", ask = null, openId = null, sel = 0, view = "search", pinned = false, close = false;
-let mode = new URLSearchParams(location.search).get("mode") || "top";   // "side": the panel beside the tab
-document.body.classList.toggle("side", mode === "side");
+// "top": the panel near the top of the screen; "side": beside the tab; "window": a normal resizable window.
+let mode = new URLSearchParams(location.search).get("mode") || "top";
+const applyMode = () => {
+  document.body.classList.toggle("side", mode === "side");
+  document.body.classList.toggle("win", mode === "window");
+  document.body.classList.toggle("mac", !!mac);
+  const w = document.getElementById("win");
+  if (w) { w.textContent = mode === "window" ? "⤡ Panel" : "⤢"; w.title = mode === "window" ? "Back to the panel" : "Open as a window (resize it, or make it full screen)"; }
+};
+applyMode();
 try { const c = JSON.parse(ls.get("gp_desk_cache") || "null"); if (c?.records) lib = c; } catch { /* no cache */ }
 
 async function api(path, body) {
@@ -206,7 +214,7 @@ document.addEventListener("keydown", e => {
   if (view !== "search") { render(); return; }
   if (openId) { openId = null; render(true); return; }
   if (q || ask) { q = ""; ask = null; sel = 0; render(); return; }
-  post("hide");
+  if (mode !== "window") post("hide");
 });
 
 async function runAsk() {
@@ -420,13 +428,25 @@ window.pr = {
   focus() { if (view === "search") { const i = document.getElementById("q"); i?.focus(); i?.select(); } refresh(); },
   setPinned(on) { pinned = on; document.getElementById("pin").classList.toggle("on", on); document.getElementById("pin").textContent = on ? "Pinned" : "Pin"; },
   shot(item) { showShot(item); },
-  setMode(m) { mode = m === "side" ? "side" : "top"; document.body.classList.toggle("side", mode === "side"); if (view === "search") render(true); },
+  setMode(m) { mode = ["side", "window"].includes(m) ? m : "top"; applyMode(); if (view === "search") render(true); },
   downloaded(n, folder) { const t = toast(`${n} image${n === 1 ? "" : "s"} saved to Downloads › Precedents <button id="reveal">Show in Finder</button>`, 5000); t.querySelector("#reveal").onclick = () => post("reveal", { folder }); },
   copied() { toast("Image copied. Paste it into InDesign, PowerPoint or anywhere."); },
   note(text) { toast(esc(text), 4000); },
 };
 document.getElementById("pin").onclick = () => { window.pr.setPinned(!pinned); post("pin", { on: pinned }); };
 document.getElementById("close").onclick = () => post("hide");
+document.getElementById("win").onclick = () => post("window", { on: mode !== "window" });
+if (!mac) document.getElementById("win").hidden = true;
+
+// Resizing: the grip (bottom-right corner of the top panel, the left edge of the side panel). The app resizes the window.
+let sizeFrom = null;
+document.getElementById("grip").addEventListener("mousedown", e => { e.preventDefault(); sizeFrom = { x: e.screenX, y: e.screenY }; });
+window.addEventListener("mousemove", e => {
+  if (!sizeFrom) return;
+  post("resize", { dx: e.screenX - sizeFrom.x, dy: e.screenY - sizeFrom.y });
+  sizeFrom = { x: e.screenX, y: e.screenY };
+});
+window.addEventListener("mouseup", () => { sizeFrom = null; });
 document.getElementById("gear").onclick = () => showSettings();
 document.getElementById("lib").onclick = () => openUrl(abs("/#/library"));
 document.getElementById("shot").onclick = () => post("screenshot");
