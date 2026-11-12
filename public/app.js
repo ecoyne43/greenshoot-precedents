@@ -1,7 +1,7 @@
 // Groundworked Precedents: the library, the inbox review and the Add page. One page, views chosen by the address
 // (#/library, #/p/PR-0001, #/inbox, #/inbox/<id>, #/add). Records come from /api/library; nothing is saved until
 // someone approves (inbox) or saves an edit, which commits to the data repo.
-import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText, readJSONAnswer } from "./util.js";
+import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText, readWebStream, readJSONAnswer } from "./util.js";
 import { bookmarklet } from "./bookmarklet.js";
 import { nameFromFile } from "./filename.js";
 
@@ -532,7 +532,7 @@ async function openReview(item) {
   };
   if (item.target && byId(item.target)) form.mergeWith(item.target);   // sent with "Add to this precedent"
   // Sent as just an image (no page, no text): Groundwork tries to identify the project online straight away.
-  else if (!item.url && !item.text && !item.checked) { item.checked = true; form.fill(); }
+  else if (!item.url && !item.text && !item.checked) { item.checked = true; form.fill({ auto: true }); }
 }
 
 // Choose a precedent from the library (searchable list). Resolves with its id, or null.
@@ -599,6 +599,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     el.innerHTML = `
     ${target ? `<div class="target">${item ? "Adding to" : "Saving to"} <b>${esc(target)}</b> ${esc(byId(target)?.name || "")}${item ? ` <button type="button" class="link" id="unmerge">Make it a new precedent instead</button>` : ""}</div>` : ""}
     <div id="prop-top"></div>
+    <div class="fill-top" id="fill-top" hidden></div>
     <div class="rf-sec"><h3>Images <span class="muted small">Untick any to leave out. ★ is the main image.</span></h3>
       ${pics.length ? `<div class="pics">${pics.map((p, n) => `<div class="pic ${p.keep ? "" : "off"}">
         <div class="pic-img"><img alt="" referrerpolicy="no-referrer" src="${esc(src(p))}"><label class="keep"><input type="checkbox" data-keep="${n}" ${p.keep ? "checked" : ""}></label><button type="button" class="star ${p.primary ? "on" : ""}" data-star="${n}" title="Main image">★</button></div>
@@ -621,7 +622,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       ${rec.depth === "short"
         ? `<details class="more-write"${rec.why_it_matters || rec.description ? " open" : ""}><summary>Why it matters and description (optional for a short record)</summary>${c.fields.filter(x => x.long && x.key !== "summary").map(field).join("")}</details>`
         : c.fields.filter(x => x.long && x.key !== "summary").map(field).join("")}
-      <div class="fillrow"><button type="button" class="btn" id="fill">✦ Check and fill online</button><span class="muted small" id="fill-msg">Groundwork searches the web, then checks every field against what it finds and the record's own text. You choose which changes to keep.</span></div>
+      <div class="fillrow"><button type="button" class="btn" id="fill" ${fillRun ? "disabled" : ""}>✦ Check and fill online</button><span class="muted small" id="fill-msg">${esc(fillMsg || "Groundwork searches the web, then checks every field against what it finds and the record's own text. You choose which changes to keep.")}</span></div>
       <div id="fill-out"></div>
     </div>
     <div class="rf-sec"><h3>Categories <span class="muted small">Pick all that apply. These drive the library's filters. Missing one? + Add to the list.</span></h3>
@@ -658,7 +659,8 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     el.querySelector("#cancel")?.addEventListener("click", closeModal);
     el.querySelector("#unmerge")?.addEventListener("click", () => { rec = item.draft.record; target = null; topHTML = ""; topAns = null; setPics(); draw(); });
     if (topHTML) { el.querySelector("#prop-top").innerHTML = topHTML; wireProposals(el.querySelector("#prop-top"), topAns); }
-    el.querySelector("#fill").onclick = fillGaps;
+    el.querySelector("#fill").onclick = () => fillGaps();
+    if (fillRun || fillAns || (fillAuto && fillMsg)) setFill(fillMsg, true);   // keep the check's progress and results after a redraw
     wireAddLink();
     el.querySelectorAll("[data-depth]").forEach(b => b.onclick = () => { sync(); rec = { ...rec, depth: b.dataset.depth }; keepScroll(draw); });
     el.querySelectorAll("[data-addval]").forEach(b => b.onclick = () => addValue(b.dataset.addval));
@@ -728,27 +730,53 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     return o;
   };
 
-  async function fillGaps() {
-    const btn = el.querySelector("#fill"), msg = el.querySelector("#fill-msg"), out = el.querySelector("#fill-out");
-    btn.disabled = true; out.innerHTML = ""; msg.textContent = "Searching the web...";
+  // Check and fill online. Its progress and results are kept here (not only on the page), so they survive the form
+  // redrawing, and a run that started by itself (a photo with nothing else to go on) shows at the top of the form too.
+  let fillRun = false, fillMsg = "", fillAns = null, fillAuto = false;
+  const setFill = (m, done) => {
+    fillMsg = m;
+    const msg = el.querySelector("#fill-msg"); if (msg) msg.textContent = m;
+    const btn = el.querySelector("#fill"); if (btn) btn.disabled = fillRun;
+    const top = el.querySelector("#fill-top");
+    if (top && fillAuto) {
+      top.hidden = false;
+      const n = fillAns ? fillAns.changes.length + Object.values(fillAns.add_facets || {}).flat().length + (fillAns.add_material_details || []).length : 0;
+      top.innerHTML = fillRun ? `<span class="spinner sm"></span> <span><b>Checking online for more details</b> <span class="muted">${esc(m)}</span></span>`
+        : n ? `<span>✦ <b>Check and fill online found ${n} thing${n === 1 ? "" : "s"} to add.</b></span> <button type="button" class="btn" id="fill-jump">See them</button>`
+        : `<span>✦ ${esc(m)}</span>`;
+      top.querySelector("#fill-jump")?.addEventListener("click", () => el.querySelector("#fill-out")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+    if (done) {
+      const box = el.querySelector("#fill-out");
+      if (box) { box.innerHTML = fillAns ? proposalsHTML(fillAns, false) : ""; if (fillAns) wireProposals(box, fillAns); }
+    }
+  };
+  async function fillGaps(opts = {}) {
+    if (fillRun) return;
+    fillAuto = !!opts.auto; fillRun = true; fillAns = null;
+    setFill("Searching the web...", true);
     const record = read();
     const images = pics.filter(p => p.keep).slice(0, 3).map(p => (p.existing ? { key: p.key } : p.key ? { key: p.key } : { url: p.url }));
     let notes = "", searchNote = "";
+    const search = async quick => {
+      const res = await api("/api/research", { method: "POST", body: { record, images, quick }, raw: true });
+      return readWebStream(res, n => setFill(`Searching the web (${n} search${n === 1 ? "" : "es"})...`));
+    };
     try {
-      const res = await api("/api/research", { method: "POST", body: { record, images }, raw: true });
-      notes = await readWebText(res, n => { msg.textContent = `Searching the web (${n} search${n === 1 ? "" : "es"})...`; });
+      let r = await search(false);
+      // Netlify stops it after about 30 seconds: with nothing written yet, one quicker try.
+      if (!r.text) { setFill("The web search ran out of time, trying a quicker one..."); r = await search(true); }
+      notes = r.text;
+      if (!notes) searchNote = "Groundwork couldn't find this online in time (add a name, place or link and run it again for more). ";
     } catch (e) { searchNote = `The web search didn't work (${e.message}), so this check uses the record's own text only. `; }
-    msg.textContent = "Checking every field...";
+    setFill("Checking every field...");
     try {
       const res = await api("/api/check", { method: "POST", body: { record, notes }, raw: true });
       const { value: raw, complete } = await readJSONAnswer(res);
-      const ans = tidyCheck(raw, record);
-      msg.textContent = searchNote + (complete ? ans.summary || "Checked." : "Groundwork ran out of time partway (the site stops after about 30 seconds), so this is the first part of the check. Use what's here, then run it again for the rest.");
-      const box = el.querySelector("#fill-out");
-      box.innerHTML = proposalsHTML(ans, false);
-      wireProposals(box, ans);
-    } catch (e) { msg.textContent = `Couldn't check: ${e.message}`; }
-    btn.disabled = false;
+      fillAns = tidyCheck(raw, record);
+      fillRun = false;
+      setFill(searchNote + (complete ? fillAns.summary || "Checked." : "Groundwork ran out of time partway (the site stops after about 30 seconds), so this is the first part of the check. Use what's here, then run it again for the rest."), true);
+    } catch (e) { fillRun = false; setFill(`Couldn't check: ${e.message}`, true); }
   }
 
   // Proposed changes (Check and fill, or adding to an existing precedent): a table of changes with ticks.
@@ -782,10 +810,10 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       box.querySelectorAll("[data-tag]:checked").forEach(x => { if (!cur.tags.includes(x.value)) cur.tags.push(x.value); });
       box.querySelectorAll("[data-mdet]:checked").forEach(x => { if (!cur.material_details.some(d => d.toLowerCase() === x.value.toLowerCase())) cur.material_details.push(x.value); });
       box.querySelectorAll("[data-src]:checked").forEach(x => { if (!cur.sources.includes(x.value)) cur.sources.push(x.value); });
-      if (box.id === "prop-top") topHTML = "";
+      if (box.id === "prop-top") topHTML = ""; else { fillAns = null; fillAuto = false; }
       rec = { ...rec, ...cur }; keepScroll(draw); toast("Changes added. Check them over before saving.");
     });
-    box.querySelector("[data-nouse]")?.addEventListener("click", () => { box.innerHTML = ""; if (box.id === "prop-top") topHTML = ""; });
+    box.querySelector("[data-nouse]")?.addEventListener("click", () => { box.innerHTML = ""; if (box.id === "prop-top") topHTML = ""; else { fillAns = null; el.querySelector("#fill-top")?.setAttribute("hidden", ""); } });
   }
 
   // Add this inbox item to a precedent already in the library: start from the existing record (its images kept,

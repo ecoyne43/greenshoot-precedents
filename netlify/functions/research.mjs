@@ -28,7 +28,7 @@ export default async (req) => {
   const denied = requireAuth(req);
   if (denied) return denied;
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
-  const { record = {}, images = [] } = await req.json().catch(() => ({}));
+  const { record = {}, images = [], quick = false } = await req.json().catch(() => ({}));
   const pics = [];
   for (const im of images.slice(0, 3)) {
     const got = await load(im);
@@ -44,7 +44,8 @@ export default async (req) => {
     ...pics.map(p => ({ type: "image", source: { type: "base64", media_type: p.type, data: Buffer.from(p.buf).toString("base64") } })),
     { type: "text", text: `RECORD\n${recordText(record)}\n\n${pics.length ? `The ${pics.length} image(s) above are of this precedent. If the record doesn't say clearly which project it is, use what you can see (signage, landmarks, setting, distinctive forms) and search to identify it.\n\n` : ""}${reverse ? `REVERSE IMAGE SEARCH (Google, for the first image):\n${reverse}\n\nUse these leads, but confirm the match before relying on it.\n\n` : ""}Research this precedent.` },
   ];
-  return streamWithSearch({ system: RESEARCH_RULES, content, maxUses: 7 });
+  // quick: a second, shorter try when the first ran out of time without any notes.
+  return streamWithSearch({ system: RESEARCH_RULES, content, maxUses: quick ? 3 : 5 });
 };
 
 export const config = { path: "/api/research" };

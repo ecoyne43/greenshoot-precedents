@@ -108,7 +108,10 @@ its source as (Title, url). Cover: the full design team and their roles (archite
 First Peoples collaborators and consultants, engineers, client, builder), year completed, exact location,
 Traditional Owner groups and how they were involved, awards, materials and the key design moves. Also note anything
 in the record that the sources contradict. If the record names no clear project, first work out which project it is
-from the name, location, image captions and sources. Do not guess; leave out anything you cannot find.`;
+from the name, location, image captions and sources. Do not guess; leave out anything you cannot find.
+Time is short (you may be stopped after about 25 seconds), so write notes as you go: after each search, write down
+the facts it gave you straight away rather than saving them all for the end. Most important first: which project
+it is, designers, place, year.`;
 
 // Check and fill, step 2: compare the whole record with the notes and with its own text, field by field.
 export const checkRules = F => `${HOUSE}

@@ -50,9 +50,12 @@ export const toBase64 = blob => new Promise((ok, bad) => {
 });
 
 // Read a streamed Claude answer (server-sent events): returns its text. onSearch(n) is called as searches run.
-export async function readWebText(res, onSearch = () => {}) {
+export async function readWebText(res, onSearch = () => {}) { return (await readWebStream(res, onSearch)).text; }
+
+// The same, plus whether the answer finished (Netlify can stop it after about 30 seconds).
+export async function readWebStream(res, onSearch = () => {}) {
   const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = "", text = "", searches = 0;
+  let buf = "", text = "", searches = 0, complete = false;
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -66,9 +69,10 @@ export async function readWebText(res, onSearch = () => {}) {
       if (ev.type === "content_block_start" && ev.content_block?.type === "server_tool_use") onSearch(++searches);
       if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") text += ev.delta.text;
       if (ev.type === "error") throw new Error(ev.error?.message || "Search failed");
+      if (ev.type === "message_stop") complete = true;
     }
   }
-  return text.trim();
+  return { text: text.trim(), complete, searches };
 }
 
 // Groundwork's JSON answer from a stream, even when the stream stopped early (Netlify ends a function after about

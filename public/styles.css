@@ -307,3 +307,8 @@ body.capture { background: var(--paper); }
 .addv { display: flex; gap: 6px; max-width: 420px; } .addv input { flex: 1; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
 .split { padding: 8px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); font-size: .86rem; }
 .split ul { margin: 6px 0 0; padding-left: 20px; } .split li { margin: 2px 0; }
+
+/* Check and fill running by itself (a photo with nothing else to go on): shown at the top of the review */
+.fill-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 14px; border-radius: 8px; background: var(--accent-soft); border: 1px solid var(--accent); font-size: .9rem; }
+.fill-top[hidden] { display: none; }
+.spinner.sm { width: 16px; height: 16px; border-width: 2px; display: inline-block; vertical-align: middle; }

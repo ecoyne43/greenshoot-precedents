@@ -33,7 +33,7 @@ function fakeClaude(body) {
   let out;
   if (sys.includes("Draft ONE")) {
     out = {
-      name: text.includes("PAGE:") || text.includes("HIGHLIGHTED") ? "Tidewater Weaving Pavilion" : "", also_known_as: "", location_text: "Foreshore Reserve, Port Sample VIC", city: "Port Sample",
+      name: text.includes("PAGE:") || text.includes("HIGHLIGHTED") ? "Tidewater Weaving Pavilion" : (text.match(/IMAGE FILE NAMES[^"]*"([^"]+)"/) || [])[1] || "", also_known_as: "", location_text: "Foreshore Reserve, Port Sample VIC", city: "Port Sample",
       state: "VIC", country: "Australia", country_to: "", year_completed: "2024", architect: "Example Studio",
       landscape_architect: "", artists: "", first_peoples_collaborators: "", client: "Sample Shire Council", other_team: "", awards: "",
       summary: (text.includes("co-design test") ? "Co-designed by Greenshoot Consulting with Elders. " : "") + "A timber pavilion on a coastal foreshore whose roof screens draw on woven fish-trap forms. It gives shade and a gathering place beside a restored saltmarsh, with seating set around a central fire pit for community events and ceremony.",
@@ -162,6 +162,13 @@ http.createServer(async (req, res) => {
         if (/cutoff test/i.test(JSON.stringify(b.messages))) text = text.slice(0, text.indexOf('"reason"', text.indexOf('"reason"') + 1) + 3);
         res.writeHead(200, { "content-type": "text/event-stream" });
         for (let i = 0; i < text.length; i += 40) res.write(`event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: text.slice(i, i + 40) } })}\n\n`);
+        return res.end();
+      }
+      if (b.tools) claudeLog.push({ kind: "search", max_uses: b.tools[0]?.max_uses });
+      if (b.stream && /slow search test/i.test(JSON.stringify(b.messages)) && b.tools?.[0]?.max_uses !== 3) {
+        // Like Netlify stopping a long search after about 30 seconds, before any notes were written.
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(`event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "server_tool_use", name: "web_search" } })}\n\n`);
         return res.end();
       }
       if (b.stream) { fakeClaude(b); return fakeFillStream(res); }

@@ -354,6 +354,23 @@ with sync_playwright() as p:
     check(rows >= 1 and "Cutoff Studio" in pg.inner_text("#modal .chg"), f"the changes that arrived are offered ({rows})")
     pg.click("#mclose")
 
+    # a photo with nothing else: Check and fill runs by itself, shown at the top, and survives the form redrawing;
+    # a search cut off before any notes gets one quicker try
+    a2 = open(f"{RUN}/fake-site/a.jpg", "rb").read()
+    ph = post("/api/inbox", {"from": "upload", "uploads": [{"data": __import__("base64").b64encode(a2).decode(), "type": "image/jpeg", "name": "Slow search test pavilion.jpg"}]})["item"]
+    pg.goto(BASE + f"/#/inbox/{ph['id']}"); pg.wait_for_selector("#form-host .rf", timeout=60000)
+    pg.wait_for_selector("#fill-top:not([hidden])")
+    pg.click("[data-depth=full]")   # redraw while it runs
+    pg.wait_for_selector("#fill-top:has-text('found')", timeout=30000)
+    check(pg.locator("#form-host #fill-out .fill-box").count() == 1, "results shown below even after the form redrew: " + pg.inner_text("#form-host #fill-msg")[:80])
+    check(pg.locator("#form-host #fill").is_enabled(), "finished, button usable again")
+    log = json.load(urllib.request.urlopen(BASE + "/__claude"))
+    uses = [x.get("max_uses") for x in log if x.get("max_uses")]
+    check(uses[-2:] == [5, 3], f"cut-off search tried again, quicker ({uses[-2:]})")
+    pg.screenshot(path=f"{OUT}/21_auto_check.png")
+    pg.click("#fill-jump"); pg.wait_for_timeout(400)
+    check(pg.locator("#form-host #fill-out .fill-box").is_visible(), "See them jumps to the changes")
+
     # phone width
     ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)
     ph.goto(BASE + "/"); ph.evaluate("localStorage.setItem('gp_pw','test'); localStorage.setItem('gp_name','Ed')"); ph.goto(BASE + "/#/library"); ph.reload()
