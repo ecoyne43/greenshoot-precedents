@@ -531,8 +531,9 @@ async function openReview(item) {
     if (id) form.mergeWith(id);
   };
   if (item.target && byId(item.target)) form.mergeWith(item.target);   // sent with "Add to this precedent"
-  // Sent as just an image (no page, no text): Groundwork tries to identify the project online straight away.
-  else if (!item.url && !item.text && !item.checked) { item.checked = true; form.fill({ auto: true }); }
+  // Sent as just an image (no page, no text): suggest Check and fill online rather than running it (it costs a
+  // little each time, and for a general precedent the draft from the photo and its file name is often enough).
+  else if (!item.url && !item.text) form.suggestFill();
 }
 
 // Choose a precedent from the library (searchable list). Resolves with its id, or null.
@@ -875,7 +876,17 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
   };
 
   draw();
-  return { el, read, fill: fillGaps, mergeWith };
+  // A gentle prompt at the top for photo-only items; the check only runs when someone clicks.
+  function suggestFill() {
+    const top = el.querySelector("#fill-top");
+    if (!top || fillRun || fillAns) return;
+    top.hidden = false;
+    top.innerHTML = `<span>Groundwork only had the photo${(item?.uploads || []).length > 1 ? "s" : ""} to go on. If you want the designers, year, place and sources, run <b>Check and fill online</b>.</span>
+      <button type="button" class="btn" id="fill-now">✦ Check and fill online</button><button type="button" class="link" id="fill-skip">Not needed</button>`;
+    top.querySelector("#fill-now").onclick = () => fillGaps({ auto: true });
+    top.querySelector("#fill-skip").onclick = () => { top.hidden = true; };
+  }
+  return { el, read, fill: fillGaps, mergeWith, suggestFill };
 }
 
 // Check and fill's answer, tidied: no changes that change nothing, one change per field, only listed categories.

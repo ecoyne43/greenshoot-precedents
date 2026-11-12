@@ -229,9 +229,10 @@ with sync_playwright() as p:
     check(pg.locator(".target").count() == 0 and pg.locator("#prop-top [data-chg]").count() == 0, "can switch back to a new precedent")
     pg.click("#discard"); pg.wait_for_selector("#toast:has-text('Discarded')")
 
-    # sent as just an image: Groundwork identifies it online straight away
+    # sent as just an image: Groundwork suggests the online check; clicked, it identifies the project
     item3 = post("/api/inbox", {"images": [BASE + "/fake-site/c.jpg"], "from": "upload"})["item"]
     pg.goto(BASE + f"/#/inbox/{item3['id']}")
+    pg.wait_for_selector("#fill-now", timeout=60000); pg.click("#fill-now")
     try: pg.wait_for_selector("#fill-out [data-use]", timeout=30000)
     except Exception:
         print("DEBUG", pg.url, pg.inner_text("#ib-main")[:700].replace("\n", " | ")); raise
@@ -359,7 +360,12 @@ with sync_playwright() as p:
     a2 = open(f"{RUN}/fake-site/a.jpg", "rb").read()
     ph = post("/api/inbox", {"from": "upload", "uploads": [{"data": __import__("base64").b64encode(a2).decode(), "type": "image/jpeg", "name": "Slow search test pavilion.jpg"}]})["item"]
     pg.goto(BASE + f"/#/inbox/{ph['id']}"); pg.wait_for_selector("#form-host .rf", timeout=60000)
-    pg.wait_for_selector("#fill-top:not([hidden])")
+    pg.wait_for_selector("#fill-top:not([hidden]) #fill-now")
+    n_search = len([x for x in json.load(urllib.request.urlopen(BASE + "/__claude")) if x.get("max_uses")])
+    pg.wait_for_timeout(800)
+    check(len([x for x in json.load(urllib.request.urlopen(BASE + "/__claude")) if x.get("max_uses")]) == n_search, "a photo-only item suggests the online check but doesn't run it")
+    pg.screenshot(path=f"{OUT}/22_suggest_check.png")
+    pg.click("#fill-now")
     pg.click("[data-depth=full]")   # redraw while it runs
     pg.wait_for_selector("#fill-top:has-text('found')", timeout=30000)
     check(pg.locator("#form-host #fill-out .fill-box").count() == 1, "results shown below even after the form redrew: " + pg.inner_text("#form-host #fill-msg")[:80])
