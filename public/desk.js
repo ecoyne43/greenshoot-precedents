@@ -6,6 +6,20 @@
 // Opened in an ordinary browser (for testing), the Mac-only parts fall back to simple versions.
 
 const mac = window.webkit?.messageHandlers?.pr;
+
+// A photo's file name when it says something ("Granite Island Causeway - TRACT.jpg"); camera names give "".
+// Same rules as public/filename.js (copied here because the Mac app bundles this file on its own).
+function nameFromFile(name) {
+  let s = String(name || "").replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/\s*\((\d+|copy)\)$/i, "").replace(/\s+(copy|edited|final)$/i, "").replace(/\s+\d{1,2}$/, "").trim();   // "Name 2", "Name (1)"
+  if (s.length < 4 || !/[a-z]{3}/i.test(s)) return "";
+  if (/^(img|dsc|dscn|dcim|pxl|mvimg|gopr|p\d|photo|image|picture|pic|screenshot|screen shot|scan|untitled|unnamed|download|pasted|file|whatsapp image|signal|telegram|attachment)\b/i.test(s)) return "";
+  if (/^[0-9a-f-]{12,}$/i.test(s.replace(/\s/g, ""))) return "";
+  if (/^\d[\d\s\-.:]+$/.test(s)) return "";
+  return s.slice(0, 200);
+}
+
+
 const post = (type, data = {}) => mac?.postMessage({ type, ...data });
 const main = document.getElementById("main");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -314,6 +328,15 @@ function showShot(item) {
   view = "shot";
   // target: the precedent these will be added to (dropped onto it, or named in the note); manual once chosen by hand.
   let target = item.target ? lib.records.find(r => r.id === item.target) || null : null, manual = !!target, picking = false;
+  // Several new images: one precedent, or one each? File names decide the starting point ("Granite Island Causeway
+  // - TRACT.jpg" and "Mount Archer Boardwalk.jpg" are two precedents; "Causeway 1.jpg" and "Causeway 2.jpg" are one).
+  const groupsOf = () => {
+    const g = new Map();
+    images.forEach((im, n) => { const nm = nameFromFile(im.name); const k = nm ? nm.toLowerCase() : `#${n}`; if (!g.has(k)) g.set(k, { name: nm, imgs: [] }); g.get(k).imgs.push(im); });
+    return [...g.values()];
+  };
+  const named = groupsOf();
+  let oneEach = images.length > 1 && named.length > 1 && named.every(x => x.name);
   const src = item.title || item.windowTitle || item.app || "";
   const what = images.length > 1 ? `these ${images.length} images` : item.image ? "this screenshot" : "this image";
   main.innerHTML = `<form class="form" id="sendshot" style="max-width:none">
@@ -327,8 +350,9 @@ function showShot(item) {
     <p class="msg" id="shmsg"></p></form>`;
   const tg = document.getElementById("tg"), sn = document.getElementById("sn");
   const drawTarget = () => {
-    document.getElementById("shhead").textContent = target ? `Add ${what} to a precedent` : `Send ${what} to the Precedents inbox`;
-    document.getElementById("shsend").textContent = target ? "Send to add to this precedent" : "Send to the inbox";
+    const groups = groupsOf();
+    document.getElementById("shhead").textContent = target ? `Add ${what} to a precedent` : oneEach ? `Send ${groups.length} new precedents` : `Send ${what} as a new precedent`;
+    document.getElementById("shsend").textContent = target ? "Send to add to this precedent" : oneEach ? `Send ${groups.length} new precedents` : "Send to the inbox";
     if (picking) {
       tg.innerHTML = `<div class="tpick"><input id="tq" type="search" placeholder="Find the precedent to add to..." autocomplete="off">
         <div id="tlist"></div><button type="button" class="link" id="tnone">No, it's a new precedent</button></div>`;
@@ -347,9 +371,13 @@ function showShot(item) {
     tg.innerHTML = target
       ? `<div class="tsel">${p ? `<img src="${esc(imgUrl(p.thumb_key))}" alt="">` : ""}<span>Adding to <b>${esc(target.name)}</b> <em>${esc(target.id)}</em>${manual ? "" : `<em class="auto">from your note</em>`}</span>
           <button type="button" class="link" id="tchg">Change</button><button type="button" class="link" id="tnew">New precedent instead</button></div>`
-      : `<div class="tsel none"><span>A new precedent.</span><button type="button" class="link" id="tchg">Add to an existing precedent instead</button></div>`;
+      : `<div class="tsel none"><span><b>${oneEach ? "New precedents" : "A new precedent"}</b> for the library</span><button type="button" class="link" id="tchg">Add to an existing precedent instead</button></div>
+        ${images.length > 1 ? `<label class="onep"><input type="checkbox" id="onep" ${oneEach ? "" : "checked"}> These ${images.length} images are all the same precedent</label>
+          ${oneEach ? `<ul class="groups">${groups.map((x, n) => `<li><b>${x.name ? esc(x.name) : `Precedent ${n + 1}`}</b> <span>${x.imgs.length} image${x.imgs.length > 1 ? "s" : ""}${x.name ? "" : ", Groundwork will try to identify it"}</span></li>`).join("")}</ul>
+            <p class="msg">Each goes to the inbox as its own precedent. Images with the same file name (e.g. "Causeway 1", "Causeway 2") stay together.</p>` : ""}` : ""}`;
     document.getElementById("tchg").onclick = () => { picking = true; drawTarget(); };
     document.getElementById("tnew")?.addEventListener("click", () => { target = null; manual = true; drawTarget(); });
+    document.getElementById("onep")?.addEventListener("change", e => { oneEach = !e.target.checked; drawTarget(); });
   };
   sn.oninput = () => { if (manual) return; const g = guessTarget(sn.value); if (g?.id !== target?.id) { target = g; drawTarget(); } };
   drawTarget();
@@ -362,20 +390,33 @@ function showShot(item) {
     const note = [sn.value.trim(), item.file ? `From ${item.file.split("/").pop()}` : ""].filter(Boolean).join(". ");
     const base = { from: "mac", url: item.url || "", title: target ? `More for ${target.name}` : item.title || item.windowTitle || note || "",
       site: item.app || "", author: item.author || "", note, ...(target ? { target: target.id } : {}) };
-    try {
-      // Netlify refuses requests over about 6 MB, so several images go up in parts.
+    // Netlify refuses requests over about 6 MB, so several images go up in parts.
+    const sendOne = async (body, imgs, label) => {
       const parts = [[]]; let size = 0;
-      for (const im of images) {
+      for (const im of imgs) {
         if (size + im.data.length > 3_500_000 && parts.at(-1).length) { parts.push([]); size = 0; }
         parts.at(-1).push({ data: im.data, type: im.type, name: im.name || "image.jpg" }); size += im.data.length;
       }
-      const { item: sent } = await api("/api/inbox", { ...base, uploads: parts[0] });
+      const { item: sent } = await api("/api/inbox", { ...body, uploads: parts[0] });
       for (const [k, p] of parts.slice(1).entries()) {
-        m.textContent = `Sending (${k + 2} of ${parts.length})...`;
+        m.textContent = `Sending ${label}(${k + 2} of ${parts.length})...`;
         await fetch("/api/inbox", { method: "PATCH", headers: { "x-app-password": auth.pw, "x-user-name": encodeURIComponent(auth.name), "content-type": "application/json" }, body: JSON.stringify({ id: sent.id, uploads: p }) });
       }
+    };
+    try {
+      if (!target && oneEach) {
+        const groups = groupsOf();
+        for (const [n, x] of groups.entries()) {
+          m.textContent = `Sending ${n + 1} of ${groups.length}...`;
+          await sendOne({ ...base, title: x.name || "" }, x.imgs, `${n + 1} of ${groups.length} `);
+        }
+        render();
+        toast(`${groups.length} new precedents sent to the inbox`, 4000);
+        return;
+      }
+      await sendOne(base, images, "");
       render();
-      toast(target ? `Sent. Once approved in the inbox, they're added to ${esc(target.name)}.` : "Sent to the inbox", 4000);
+      toast(target ? `Sent. Once approved in the inbox, they're added to ${esc(target.name)}.` : "Sent to the inbox as a new precedent", 4000);
     } catch (err) { m.className = "msg bad"; m.textContent = `Couldn't send: ${err.message}`; }
   };
 }
@@ -450,6 +491,7 @@ window.addEventListener("mouseup", () => { sizeFrom = null; });
 document.getElementById("gear").onclick = () => showSettings();
 document.getElementById("lib").onclick = () => openUrl(abs("/#/library"));
 document.getElementById("shot").onclick = () => post("screenshot");
+document.getElementById("newp-files").onchange = e => { if (e.target.files.length) offerFiles(e.target.files); e.target.value = ""; };
 if (!mac) document.getElementById("shot").title = "Only in the Mac app";
 
 // Dragging the panel by its header (the Mac app moves the window).

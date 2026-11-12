@@ -71,6 +71,38 @@ with sync_playwright() as p:
     it = json.load(urllib.request.urlopen(req))["items"][0]
     check(it.get("target") == "PR-0009", "sent to add to the chosen precedent")
 
+    # new precedents: several images as one precedent, or one each (file names decide the starting point)
+    drop_named = """async (names) => { const blob = await (await fetch('/fake-site/b.jpg')).blob();
+      const dt = new DataTransfer(); names.forEach(n => dt.items.add(new File([blob], n, { type: 'image/jpeg' })));
+      const el = document.querySelector('#list');
+      el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); }"""
+    pg.goto(BASE + "/desk.html"); pg.wait_for_selector(".res")
+    pg.evaluate(drop_named, ["Granite island Causeway - TRACT.jpg", "Granite island Causeway - TRACT 2.jpg", "Mount Archer Treetop Boardwalk.jpeg"])
+    pg.wait_for_selector("#sendshot")
+    check(not pg.is_checked("#onep") and pg.locator(".groups li").count() == 2, "differently named photos start as separate precedents")
+    check("Send 2 new precedents" in pg.inner_text("#shhead"), "header says 2 new precedents")
+    pg.screenshot(path=sys.argv[2] + "/desk_new_many.png") if len(sys.argv) > 2 else None
+    n0 = len(json.load(urllib.request.urlopen(req))["items"])
+    pg.click("#shsend"); pg.wait_for_selector("#toast:has-text('2 new precedents sent')", timeout=30000)
+    items = json.load(urllib.request.urlopen(req))["items"]
+    new = items[:len(items) - n0]
+    check(sorted(i["title"] for i in new) == ["Granite island Causeway - TRACT", "Mount Archer Treetop Boardwalk"] and sorted(len(i["uploads"]) for i in new) == [1, 2] and not any(i.get("target") for i in new), "sent as 2 new precedents, titled from file names")
+    pg.goto(BASE + "/desk.html"); pg.wait_for_selector(".res")
+    pg.evaluate(drop_named, ["IMG_1001.jpg", "IMG_1002.jpg", "IMG_1003.jpg"])
+    pg.wait_for_selector("#sendshot")
+    check(pg.is_checked("#onep") and "as a new precedent" in pg.inner_text("#shhead"), "camera-named photos start as one precedent")
+    pg.uncheck("#onep")
+    check(pg.locator(".groups li").count() == 3 and "Send 3 new precedents" in pg.inner_text("#shsend"), "untick: one precedent each")
+    pg.check("#onep"); n0 = len(json.load(urllib.request.urlopen(req))["items"])
+    pg.click("#shsend"); pg.wait_for_selector("#toast:has-text('as a new precedent')", timeout=30000)
+    it = json.load(urllib.request.urlopen(req))["items"][0]
+    check(len(json.load(urllib.request.urlopen(req))["items"]) == n0 + 1 and len(it["uploads"]) == 3 and not it.get("target"), "ticked: one new precedent with all 3")
+    check(pg.locator("#newp").is_visible() and pg.locator("#newp-files").count() == 1, "+ New precedent button to choose photos")
+    pub = open("public/filename.js").read(); dsk = open("public/desk.js").read()
+    body = pub[pub.index("export function nameFromFile"):].replace("export function", "function").strip()
+    check(body in dsk, "the panel's file-name rules match the site's")
+
     # the side panel (opened from the tab on the right edge): tall and narrow
     sp = b.new_page(viewport={"width": 440, "height": 880})
     sp.on("pageerror", lambda e: errors.append(f"page error (side): {e}"))
