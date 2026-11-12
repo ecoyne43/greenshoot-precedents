@@ -15,6 +15,7 @@ import WebKit
 import Carbon.HIToolbox
 import ApplicationServices
 import ServiceManagement
+import UniformTypeIdentifiers
 
 let defaultSite = "https://greenshoot-precedents.netlify.app"
 let maxUploadBytes = 4_400_000
@@ -129,7 +130,7 @@ final class TabView: NSView {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate, NSDraggingSource {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate, NSDraggingSource {
     var panel: FloatingPanel!
     var web: WKWebView!
     var statusItem: NSStatusItem!
@@ -138,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var pendingJS: [String] = []
     var pinned = false
     var dragging = false
+    var choosing = false                             // the "choose photos" window is open: keep the panel up
     var previousApp: NSRunningApplication?
     var appWindow: NSWindow?                         // the panel opened as a normal window (⤢), resizable, full screen
     var windowed: Bool { appWindow?.isVisible == true || appWindow?.isMiniaturized == true }
@@ -282,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         web.autoresizingMask = [.width, .height]
         web.setValue(false, forKey: "drawsBackground")
         web.navigationDelegate = self
+        web.uiDelegate = self                         // so "+ New precedent" can open a file chooser
         panel.contentView = web
         loadPage()
     }
@@ -403,7 +406,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     // Click away and it hides, unless pinned (or while an image is being dragged out).
     func windowDidResignKey(_ notification: Notification) {
         guard (notification.object as? NSWindow) === panel else { return }
-        if !pinned && !dragging { panel.orderOut(nil); tabView?.isOpen = false; hiddenAt = Date() }
+        if !pinned && !dragging && !choosing { panel.orderOut(nil); tabView?.isOpen = false; hiddenAt = Date() }
+    }
+
+    // A web view can't open a file chooser by itself: "+ New precedent" (an <input type="file">) asks for one here.
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let chooser = NSOpenPanel()
+        chooser.allowsMultipleSelection = parameters.allowsMultipleSelection
+        chooser.canChooseDirectories = false
+        chooser.canChooseFiles = true
+        chooser.allowedContentTypes = [.image]
+        chooser.message = "Choose photos to send to the Precedents inbox"
+        chooser.prompt = "Choose"
+        chooser.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)   // above the panel
+        choosing = true
+        NSApp.activate(ignoringOtherApps: true)
+        chooser.begin { [weak self] result in
+            completionHandler(result == .OK ? chooser.urls : nil)
+            guard let me = self else { return }
+            me.choosing = false
+            if let w = me.web.window { w.makeKeyAndOrderFront(nil) }   // back to the send form
+        }
     }
 
     // MARK: Resizing, and opening as a normal window
