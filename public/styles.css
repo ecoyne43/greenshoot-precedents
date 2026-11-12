@@ -244,8 +244,9 @@ body.capture { background: var(--paper); }
   .search { flex-direction: column; }
   .tabs a { padding: 0 8px; } .tabs .count:not(.badge) { display: none; } .btn.ask { padding: 10px; justify-content: center; }
 }
+@media (max-width: 700px) { .aicost .long { display: none; } .aicost { margin-right: 0; padding: 3px 7px; } }
 @media (max-width: 520px) {
-  .brand-text { display: none; }
+  .brand-text { display: none; } .aicost { display: none; }
   .chip-btn { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 .chg { width: 100%; border-collapse: collapse; font-size: .84rem; background: #fff; border-radius: 6px; overflow: hidden; }
@@ -312,3 +313,31 @@ body.capture { background: var(--paper); }
 .fill-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 14px; border-radius: 8px; background: var(--accent-soft); border: 1px solid var(--accent); font-size: .9rem; }
 .fill-top[hidden] { display: none; }
 .spinner.sm { width: 16px; height: 16px; border-width: 2px; display: inline-block; vertical-align: middle; }
+
+/* Documents (PowerPoint, PDF): pick the images, send the text */
+.docbox { display: flex; flex-direction: column; gap: 8px; }
+.doc-drop { min-height: 70px; }
+.doc-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: .9rem; }
+.doc-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: .84rem; }
+.doc-grid { max-height: 460px; }
+.doc-grid .ip-cell.nope:not(.on) img { opacity: .35; }
+.doc-text { font-size: .86rem; display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+#by-doc { margin-top: 18px; }
+
+/* AI costs: the tags on AI buttons, the header total and the costs page */
+.cost { display: inline-block; margin: 0 6px; padding: 1px 7px; border-radius: 10px; font: 600 .68rem var(--mono, monospace); letter-spacing: .02em; color: #7a5a12; background: #fbf3e2; border: 1px solid #ecd7a8; white-space: nowrap; vertical-align: middle; cursor: help; }
+.aicost { font: .78rem var(--mono, monospace); color: #d9d6cc; text-decoration: none; padding: 3px 9px; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; margin-right: 10px; white-space: nowrap; }
+.aicost:hover { border-color: #fff; color: #fff; }
+.aicost.near { border-color: #d9a441; color: #f2c879; } .aicost.over { border-color: #e06c5a; color: #ffb1a5; }
+.costs .cost-sum { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: 14px 0; }
+.costs .cost-sum > div { display: flex; flex-direction: column; gap: 2px; } .costs .cost-sum b { font-size: 2rem; }
+.costs #budget-form { display: flex; gap: 8px; align-items: flex-end; } .costs #budget-form label { display: flex; flex-direction: column; gap: 4px; }
+.costs #budget-form input { width: 120px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.budget-bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; } .budget-bar span { display: block; height: 100%; background: var(--accent); }
+.budget-bar.near span { background: #d9a441; } .budget-bar.over span { background: #c4513f; }
+.ctab { width: 100%; border-collapse: collapse; font-size: .88rem; margin-bottom: 8px; } .ctab th { text-align: left; font-weight: 600; color: var(--ink-soft, #6b767c); font-size: .78rem; }
+.ctab td, .ctab th { padding: 7px 8px; border-bottom: 1px solid var(--line); } .ctab td:not(:first-child), .ctab th:not(:first-child) { text-align: right; white-space: nowrap; }
+.cdays { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding: 6px 0 18px; }
+.cdays > div { flex: 1; max-width: 26px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+.cdays span { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; } .cdays em { position: absolute; bottom: -16px; font: .62rem var(--mono, monospace); font-style: normal; color: var(--ink-soft, #6b767c); }
+.cmonths { list-style: none; padding: 0; } .cmonths li { padding: 4px 0; } .cmonths a.on { font-weight: 600; }

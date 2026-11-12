@@ -29,6 +29,8 @@ changes here can never break the live map tool.
 | `/api/ask` | Ask Groundwork, Find similar, find precedents for a brief |
 | `/api/research` | Check and fill online, step 1: web search for the precedent (can look at its images), streamed notes |
 | `/api/check` | Check and fill online, step 2: compares every field with the notes and the record's own text, proposes changes with reasons and sources |
+| `/api/usage` | AI costs: every AI call's estimated cost (A$), summed by month, feature, person and day; heads-up amount |
+| `/api/sort-images` | "Let Groundwork pick": which images pulled out of a PowerPoint or PDF are of the project |
 | `/api/categories` | the category lists with the team's additions (`categories.json` in the data repo); add or remove a value |
 | `/api/page-images` | every likely photo on a web page, for the image picker ("Get images", "Add images from a link") |
 | `/api/img`, `/api/proxy-image` | serve stored images; fetch web images for the browser to shrink |
@@ -57,6 +59,8 @@ Pages: `index.html` + `app.js` (library, record, inbox review, add), `capture.ht
      so viewing and downloading images uses no Netlify traffic. Without them, images stay in Netlify Blobs.
    - optional `GOOGLE_VISION_KEY`: Google Cloud Vision API key, for reverse image search when a precedent arrives
      as just an image (first 1,000 a month free, then US$3.50 per 1,000, Nov 2026)
+   - optional `PRICE_INPUT_USD_PER_M`, `PRICE_OUTPUT_USD_PER_M`, `PRICE_SEARCH_USD_PER_1000`, `AUD_PER_USD`: the prices the
+     AI costs page uses (defaults 2, 10, 10, 1.45)
    - optional `CLAUDE_MODEL` (default `claude-sonnet-5-5`), `DATA_PATH` (default `precedents.json`), `GITHUB_BRANCH`
 4. Send the team the site's `/start.html` link and the password.
 

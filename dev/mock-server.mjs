@@ -18,7 +18,7 @@ Object.assign(process.env, {
 });
 
 const ROUTES = { config: "config", library: "library", inbox: "inbox", draft: "draft", save: "save", ask: "ask",
-  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image", "page-images": "page-images", categories: "categories" };
+  research: "research", check: "check", upload: "upload", merge: "merge", "move-images": "move-images", img: "img", "proxy-image": "proxy-image", "page-images": "page-images", categories: "categories", "sort-images": "sort-images", usage: "usage" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 export const claudeLog = [];
 
@@ -28,10 +28,12 @@ function fakeClaude(body) {
   const userText = (body.messages?.[0]?.content || []);
   const text = typeof userText === "string" ? userText : userText.filter(c => c.type === "text").map(c => c.text).join("\n");
   const nImages = typeof userText === "string" ? 0 : userText.filter(c => c.type === "image").length;
-  claudeLog.push({ kind: sys.includes("Draft ONE") ? "draft" : sys.includes("Research a precedent") ? "research" : sys.includes("Check a precedent") ? "check" : "ask", nImages, text: text.slice(0, 8000) });
+  claudeLog.push({ kind: sys.includes("pulled out of a document") ? "sort" : sys.includes("Draft ONE") ? "draft" : sys.includes("Research a precedent") ? "research" : sys.includes("Check a precedent") ? "check" : "ask", nImages, text: text.slice(0, 8000) });
   if (body.stream) return null;
   let out;
-  if (sys.includes("Draft ONE")) {
+  if (sys.includes("pulled out of a document")) {
+    out = { images: Array.from({ length: nImages }, (_, n) => ({ keep: true, image_type: n === 0 ? "Aerial" : "Photo", caption: `View ${n + 1} of the pavilion` })) };
+  } else if (sys.includes("Draft ONE")) {
     out = {
       name: text.includes("PAGE:") || text.includes("HIGHLIGHTED") ? "Tidewater Weaving Pavilion" : (text.match(/IMAGE FILE NAMES[^"]*"([^"]+)"/) || [])[1] || "", also_known_as: "", location_text: "Foreshore Reserve, Port Sample VIC", city: "Port Sample",
       state: "VIC", country: "Australia", country_to: "", year_completed: "2024", architect: "Example Studio",
@@ -76,15 +78,17 @@ function fakeClaude(body) {
     out = { summary: hits.length ? `${hits.length} precedents fit, the first two most closely.` : "Nothing in the library fits that well.",
       results: hits.map(([l]) => ({ id: l.split(" | ")[0], reason: `Matches on ${words.filter(w => l.toLowerCase().includes(w)).slice(0, 3).join(", ")}.` })) };
   }
-  return { content: [{ type: "text", text: JSON.stringify(out) }] };
+  return { content: [{ type: "text", text: JSON.stringify(out) }], usage: { input_tokens: 20000 + nImages * 1500, output_tokens: 1200 } };
 }
 
 function fakeFillStream(res) {
   res.writeHead(200, { "content-type": "text/event-stream" });
   const ev = o => res.write(`event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`);
+  ev({ type: "message_start", message: { usage: { input_tokens: 9000, output_tokens: 1 } } });
   ev({ type: "content_block_start", index: 0, content_block: { type: "server_tool_use", name: "web_search" } });
   ev({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "- Architect: Example Studio with Tidal Landscape (Example Studio, https://example.org/tidewater)\n" } });
   ev({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "- Won the Sample Architecture Award, Small Project, 2025 (Awards, https://example.org/awards)\n" } });
+  ev({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 700, server_tool_use: { web_search_requests: 4 } } });
   ev({ type: "message_stop" });
   res.end();
 }
@@ -161,7 +165,9 @@ http.createServer(async (req, res) => {
         // Like Netlify stopping a function after about 30 seconds: the answer ends partway.
         if (/cutoff test/i.test(JSON.stringify(b.messages))) text = text.slice(0, text.indexOf('"reason"', text.indexOf('"reason"') + 1) + 3);
         res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(`event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 12000, output_tokens: 1 } } })}\n\n`);
         for (let i = 0; i < text.length; i += 40) res.write(`event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: text.slice(i, i + 40) } })}\n\n`);
+        if (!/cutoff test/i.test(JSON.stringify(b.messages))) res.write(`event: message_delta\ndata: ${JSON.stringify({ type: "message_delta", delta: {}, usage: { output_tokens: 900 } })}\n\n`);
         return res.end();
       }
       if (b.tools) claudeLog.push({ kind: "search", max_uses: b.tools[0]?.max_uses });

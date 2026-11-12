@@ -4,6 +4,7 @@
 import { timingSafeEqual, createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { logUsage, addUsage, meterStream } from "./usage.mjs";
 
 export const env = (k, fallback) => process.env[k] ?? fallback;
 
@@ -91,7 +92,8 @@ export async function writeJSON(path, data, sha, message) {
 const CLAUDE_URL = () => env("ANTHROPIC_BASE_URL", "https://api.anthropic.com") + "/v1/messages";
 
 // One Claude call. With `schema`, the answer is JSON matching it and comes back parsed.
-export async function claude({ system, content, schema, maxTokens = 4000, tools }) {
+// feature and user: for the AI costs page (every call's tokens are recorded, see usage.mjs).
+export async function claude({ system, content, schema, maxTokens = 4000, tools, feature = "other", user = "" }) {
   if (!env("ANTHROPIC_API_KEY")) throw Object.assign(new Error("ANTHROPIC_API_KEY is not set"), { status: 500 });
   const res = await fetch(CLAUDE_URL(), {
     method: "POST",
@@ -105,6 +107,7 @@ export async function claude({ system, content, schema, maxTokens = 4000, tools 
   });
   if (!res.ok) throw Object.assign(new Error(`Claude error ${res.status}: ${(await res.text()).slice(0, 300)}`), { status: 502 });
   const out = await res.json();
+  await logUsage({ feature, user, usage: addUsage({}, out.usage) });
   const text = (out.content || []).filter(c => c.type === "text").map(c => c.text).join("\n").trim();
   if (!schema) return text;
   try { return JSON.parse(text); } catch { throw Object.assign(new Error("Claude's answer could not be read"), { status: 502 }); }
@@ -113,7 +116,7 @@ export async function claude({ system, content, schema, maxTokens = 4000, tools 
 // Claude with a JSON answer, streamed straight back to the browser as it is written. For answers that can take a
 // while (Check and fill): Netlify cuts off a function that waits too long before replying, but not one that is
 // already streaming. The page reads the text with readWebText and parses the JSON.
-export async function streamJSON({ system, content, schema, maxTokens = 4000 }) {
+export async function streamJSON({ system, content, schema, maxTokens = 4000, feature = "other", user = "" }) {
   if (!env("ANTHROPIC_API_KEY")) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
   const res = await fetch(CLAUDE_URL(), {
     method: "POST",
@@ -124,11 +127,11 @@ export async function streamJSON({ system, content, schema, maxTokens = 4000 }) 
     }),
   });
   if (!res.ok) return json({ error: `Claude API error (${res.status}): ${(await res.text()).slice(0, 300)}` }, 502);
-  return new Response(res.body, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+  return new Response(meterStream(res.body, { feature, user }), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
 }
 
 // Claude with web search, streamed back to the browser (long searches would time out otherwise).
-export async function streamWithSearch({ system, content, maxUses = 6, maxTokens = 5000 }) {
+export async function streamWithSearch({ system, content, maxUses = 6, maxTokens = 5000, feature = "research", user = "" }) {
   if (!env("ANTHROPIC_API_KEY")) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
   const res = await fetch(CLAUDE_URL(), {
     method: "POST",
@@ -144,7 +147,7 @@ export async function streamWithSearch({ system, content, maxUses = 6, maxTokens
     const hint = /web.?search/i.test(text) ? " Web search may need to be switched on for this API key in the Claude Console." : "";
     return json({ error: `Claude API error (${res.status}): ${text.slice(0, 400)}${hint}` }, 502);
   }
-  return new Response(res.body, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+  return new Response(meterStream(res.body, { feature, user }), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
 }
 
 // ---------- images ----------

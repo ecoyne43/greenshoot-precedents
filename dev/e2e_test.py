@@ -377,6 +377,78 @@ with sync_playwright() as p:
     pg.click("#fill-jump"); pg.wait_for_timeout(400)
     check(pg.locator("#form-host #fill-out .fill-box").is_visible(), "See them jumps to the changes")
 
+    # documents: a PowerPoint about one project, added to its precedent; a PDF sent as a new precedent
+    from pptx import Presentation
+    from pptx.util import Inches
+    prs = Presentation(); blank = prs.slide_layouts[5]
+    for n, (title, img) in enumerate([("Tidewater Weaving Pavilion: final presentation", None), ("The woven roof", "a.jpg"), ("From the saltmarsh", "b.jpg"), ("Opening day", "c.jpg"), ("Thank you", None)]):
+        sl = prs.slides.add_slide(blank); sl.shapes.title.text = title
+        sl.shapes.add_textbox(Inches(1), Inches(5.5), Inches(8), Inches(1)).text_frame.text = f"Slide text {n + 1}: spotted gum battens, woven sedge panels, opened March 2024."
+        if img: sl.shapes.add_picture(f"{RUN}/fake-site/{img}", Inches(1), Inches(1.5), width=Inches(6))
+        if n: sl.shapes.add_picture(f"{RUN}/fake-site/logo.jpg", Inches(8), Inches(0.2), width=Inches(1.2))   # a logo on most slides
+    prs.save(f"{RUN}/deck.pptx")
+    pg.goto(BASE + "/#/p/PR-0003"); pg.wait_for_selector("#addto"); pg.click("#addto"); pg.wait_for_selector("#at-doc")
+    pg.set_input_files("#at-doc input[type=file]", f"{RUN}/deck.pptx")
+    pg.wait_for_selector("#at-doc .doc-grid .ip-cell", timeout=20000)
+    head = pg.inner_text("#at-doc .doc-head")
+    check("5 slides" in head and "4 images" in head, f"PowerPoint read in the browser: {head}")
+    check(pg.locator("#at-doc .ip-cell").count() == 3 and pg.locator("#at-doc .ip-cell.on").count() == 3, "the 3 photos shown and ticked; the logo on every slide tucked away")
+    pg.click("#at-doc [data-d=small]"); check(pg.locator("#at-doc .ip-cell").count() == 4, "the logo can be shown")
+    pg.click("#at-doc [data-d=ai]"); pg.wait_for_selector("#at-doc .doc-msg:has-text('picked')", timeout=20000)
+    check(pg.locator("#at-doc .ip-cell.on").count() == 3 and "Aerial" in pg.inner_text("#at-doc .doc-grid"), "Groundwork picks the photos and types them")
+    pg.screenshot(path=f"{OUT}/23_doc_addto.png", full_page=True)
+    pg.fill('#addto-form textarea[name="note"]', "Final presentation deck")
+    pg.click("#at-send"); pg.wait_for_selector(".target:has-text('PR-0003')", timeout=60000)
+    it = json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/inbox", headers={"x-app-password": "test"})))["items"][0]
+    check(it["from"] == "document" and it["target"] == "PR-0003" and len(it["uploads"]) == 3, "sent to add to PR-0003, with its 3 images")
+    check("[Slide 2]" in it["text"] and "spotted gum" in it["text"] and it["uploads"][0].get("caption") == "View 1 of the pavilion", "slide text and Groundwork's captions go along")
+    log = json.load(urllib.request.urlopen(BASE + "/__claude"))
+    check(any(x["kind"] == "sort" and x["nImages"] == 3 for x in log), "Groundwork looked at the 3 photos once (the tiny logo isn't worth sending)")
+    # a PDF on the Add page
+    from reportlab.pdfgen import canvas as pdfc
+    cv = pdfc.Canvas(f"{RUN}/report.pdf")
+    for n in range(3):
+        cv.drawString(72, 760, f"Page {n + 1}: Riverside Shelter, a timber and Corten shelter by the river.")
+        if n == 1: cv.drawImage(f"{RUN}/fake-site/a.jpg", 72, 300, width=400, height=267)
+        cv.showPage()
+    cv.save()
+    pg.goto(BASE + "/#/add"); pg.wait_for_selector("#doc-box")
+    pg.set_input_files("#doc-box input[type=file]", f"{RUN}/report.pdf")
+    pg.wait_for_selector("#doc-box .doc-grid .ip-cell", timeout=30000)
+    check(pg.locator("#doc-box .ip-cell").count() == 3 and pg.locator("#doc-box .ip-cell.on").count() == 0, "PDF: each page as a picture, none ticked yet")
+    pg.locator("#doc-box .ip-cell").nth(1).click()
+    pg.screenshot(path=f"{OUT}/24_doc_add.png", full_page=True)
+    pg.click("#doc-send"); pg.wait_for_selector("#form-host .rf", timeout=60000)
+    it = json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/inbox", headers={"x-app-password": "test"})))["items"][0]
+    check(it["from"] == "document" and it["title"] == "report" and len(it["uploads"]) == 1 and "[Page 2]" in it["text"], f"PDF sent as a new precedent with page 2 and the text ({it['title']})")
+    log = json.load(urllib.request.urlopen(BASE + "/__claude"))
+    check(any(x["kind"] == "draft" and "TEXT FROM THE DOCUMENT" in x["text"] and "Corten" in x["text"] for x in log), "Groundwork drafts from the document's text")
+    # an old .ppt is explained
+    open(f"{RUN}/old.ppt", "wb").write(b"not a zip")
+    pg.goto(BASE + "/#/add"); pg.wait_for_selector("#doc-box")
+    pg.set_input_files("#doc-box input[type=file]", f"{RUN}/old.ppt"); pg.wait_for_selector("#doc-box .msg.bad")
+    check("save it as .pptx" in pg.inner_text("#doc-box"), "old .ppt files: asked to save as .pptx")
+
+    # AI costs: every AI button says roughly what it costs; every call is recorded; the header and #/costs add it up
+    pg.goto(BASE + "/#/library"); pg.wait_for_selector("#aicost:not([hidden])")
+    check("AI · " in pg.inner_text(".askbar, form.ask, body") and pg.locator(".cost").count() >= 1, "Ask Groundwork shows its cost")
+    total_txt = pg.inner_text("#aicost")
+    check(total_txt.startswith("AI A$") and float(total_txt.split("A$")[1].split()[0]) > 0, f"header shows this month's AI total ({total_txt})")
+    usage = json.load(urllib.request.urlopen(urllib.request.Request(BASE + "/api/usage", headers={"x-app-password": "test"})))
+    feats = {f["key"]: f for f in usage["byFeature"]}
+    check(all(k in feats for k in ["draft", "check", "research", "merge", "sort"]), f"every kind of AI call is recorded ({sorted(feats)})")
+    d = feats["draft"]; exp = (d["input"] * 2 / 1e6 + d["output"] * 10 / 1e6) * 1.45
+    check(abs(d["total"] - round(exp, 2)) < 0.02 and feats["research"]["searches"] > 0, "priced from the token counts, searches counted")
+    check(any(u["key"] == "Ed" for u in usage["byUser"]), "recorded by person")
+    pg.goto(BASE + "/#/costs"); pg.wait_for_selector(".costs .cost-sum")
+    pg.fill("#budget", "1"); pg.click("#budget-form button"); pg.wait_for_selector(".budget-bar")
+    check(pg.locator("#aicost.over").count() == 1, "over the heads-up amount: the header total turns red")
+    pg.screenshot(path=f"{OUT}/25_costs.png", full_page=True)
+    pg.fill("#budget", ""); pg.click("#budget-form button"); pg.wait_for_timeout(500)
+    item9 = post("/api/inbox", {"url": BASE + "/fake-site/project.html", "from": "web"})["item"]
+    pg.goto(BASE + f"/#/inbox/{item9['id']}"); pg.wait_for_selector("#form-host .rf", timeout=60000)
+    check(pg.locator("#form-host .fillrow .cost").count() == 1 and pg.locator(".addto-row .cost").count() == 1, "Check and fill and Add to existing show their cost")
+
     # phone width
     ph = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)
     ph.goto(BASE + "/"); ph.evaluate("localStorage.setItem('gp_pw','test'); localStorage.setItem('gp_name','Ed')"); ph.goto(BASE + "/#/library"); ph.reload()

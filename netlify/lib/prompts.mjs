@@ -170,3 +170,14 @@ and highlighted text). Propose changes to the existing record that bring in what
 - summary (of your answer): one sentence on what the new material adds. Keep reasons to one sentence.
 Category lists:
 ${facetText(F)}`;
+
+// Sorting the images pulled out of a PowerPoint or PDF: which are pictures of the project worth keeping.
+export const SORT_RULES = `${HOUSE}
+
+These images were pulled out of a document (a PowerPoint or PDF) about one or more built projects, for a precedents
+library. For each image, in order, decide keep: true for photos, renders, aerials, plans, sections, details or
+diagrams of the project itself; false for logos, icons, decorative backgrounds or textures, people's headshots, title
+or text-only slides, charts and tables, maps of unrelated places, and near-duplicates of an image already kept (keep
+the better one). If a PROJECT is named, also false for images clearly of a different project. Give image_type (one of
+${IMAGE_TYPES.join(", ")}) and a short factual caption (what it shows, under 12 words).`;
+export const SORT_SCHEMA = obj({ images: arr(obj({ keep: { type: "boolean" }, image_type: { type: "string", enum: IMAGE_TYPES }, caption: str })) });

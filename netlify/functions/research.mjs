@@ -3,7 +3,7 @@
 // with every field of the record. Nothing changes until the reviewer ticks the changes they want.
 // images: up to 3 of the record's pictures ({ key } inbox upload or library image, or { url }), so Groundwork can
 // see them; this is how a precedent sent as just an image gets identified.
-import { requireAuth, json, streamWithSearch } from "../lib/server.mjs";
+import { requireAuth, json, streamWithSearch, userName } from "../lib/server.mjs";
 import { RESEARCH_RULES } from "../lib/prompts.mjs";
 import { recordText } from "../lib/library.mjs";
 import { store } from "../lib/blobs.mjs";
@@ -45,7 +45,7 @@ export default async (req) => {
     { type: "text", text: `RECORD\n${recordText(record)}\n\n${pics.length ? `The ${pics.length} image(s) above are of this precedent. If the record doesn't say clearly which project it is, use what you can see (signage, landmarks, setting, distinctive forms) and search to identify it.\n\n` : ""}${reverse ? `REVERSE IMAGE SEARCH (Google, for the first image):\n${reverse}\n\nUse these leads, but confirm the match before relying on it.\n\n` : ""}Research this precedent.` },
   ];
   // quick: a second, shorter try when the first ran out of time without any notes.
-  return streamWithSearch({ system: RESEARCH_RULES, content, maxUses: quick ? 3 : 5 });
+  return streamWithSearch({ system: RESEARCH_RULES, content, maxUses: quick ? 3 : 5, feature: "research", user: userName(req) });
 };
 
 export const config = { path: "/api/research" };

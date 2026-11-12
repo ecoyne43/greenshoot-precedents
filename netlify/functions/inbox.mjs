@@ -31,7 +31,8 @@ async function addUploads(files, item, ups) {
     const key = `${item.id}_${item.uploads.length}.${ext}`;
     await files.set(key, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
     item.uploads.push({ key, type: up.type, name: s(up.name, 200), taken: s(up.taken, 40),
-      ...(up.credit ? { credit: s(up.credit, 200) } : {}), ...(/^https?:/.test(up.src || "") ? { src: s(up.src, 2000) } : {}) });
+      ...(up.credit ? { credit: s(up.credit, 200) } : {}),
+      ...(up.caption ? { caption: s(up.caption, 300) } : {}), ...(up.image_type ? { image_type: s(up.image_type, 20) } : {}), ...(/^https?:/.test(up.src || "") ? { src: s(up.src, 2000) } : {}) });
   }
   return null;
 }
@@ -59,7 +60,7 @@ export default handle(async (req) => {
       url: s(b.url, 2000), title: s(b.title, 300), site: s(b.site, 120), author: s(b.author, 200), date: s(b.date, 60),
       text: s(b.text, 20000), note: s(b.note, 2000),
       images: (Array.isArray(b.images) ? b.images : []).filter(u => /^https?:/.test(u)).slice(0, 30).map(x => s(x, 2000)),
-      from: ["extension", "mac", "upload"].includes(b.from) ? b.from : "web", uploads: [],
+      from: ["extension", "mac", "upload", "document"].includes(b.from) ? b.from : "web", uploads: [],
       ...(/^PR-\d{4}$/.test(b.target || "") ? { target: b.target } : {}),   // sent with "Add to this precedent"
     };
     const err = await addUploads(files, item, ups);

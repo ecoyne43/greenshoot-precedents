@@ -3,7 +3,7 @@
 //   { similar: id }     Find similar to a precedent
 //   { brief }           Find precedents for a project brief (pasted text)
 // Returns { summary, results: [{ id, reason }] }, best first, ids only from the library.
-import { requireAuth, json, handle, claude } from "../lib/server.mjs";
+import { requireAuth, json, handle, claude, userName } from "../lib/server.mjs";
 import { readLibrary, indexLine } from "../lib/library.mjs";
 import { ASK_RULES, ASK_SCHEMA, SIMILAR_RULES } from "../lib/prompts.mjs";
 
@@ -30,7 +30,8 @@ export default handle(async (req) => {
     ask = `REQUEST: ${String(question).slice(0, 1000)}`;
   }
   const index = pool.map(indexLine).join("\n");
-  const out = await claude({ system: rules, content: `${ask}\n\nLIBRARY INDEX:\n${index}`, schema: ASK_SCHEMA, maxTokens: 3000 });
+  const out = await claude({ system: rules, content: `${ask}\n\nLIBRARY INDEX:\n${index}`, schema: ASK_SCHEMA, maxTokens: 3000,
+    feature: similar ? "similar" : brief ? "brief" : "ask", user: userName(req) });
   const ids = new Set(pool.map(r => r.id));
   const results = (out.results || []).filter(x => ids.has(x.id)).filter((x, i, a) => a.findIndex(y => y.id === x.id) === i).slice(0, 12);
   return json({ summary: out.summary || "", results });

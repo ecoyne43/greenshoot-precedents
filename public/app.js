@@ -4,6 +4,7 @@
 import { esc, api, setAuth, getAuth, toast, shrink, toBase64, readWebText, readWebStream, readJSONAnswer } from "./util.js";
 import { bookmarklet } from "./bookmarklet.js";
 import { nameFromFile } from "./filename.js";
+import { readDocument, documentText, isDocument } from "./docread.js";
 
 const st = {
   cfg: null, records: [], inbox: [],
@@ -61,6 +62,7 @@ async function loadInbox() {
 
 // ---------- routing ----------
 function route() {
+  refreshCost();   // the month's AI total in the header stays current
   const h = location.hash.replace(/^#\/?/, "");
   const [tab, arg] = h.split("/");
   document.querySelectorAll(".tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === (tab === "p" ? "library" : tab || "library")));
@@ -73,6 +75,7 @@ function route() {
   if (tab === "add") return renderAdd();
   if (tab === "admin") return renderAdmin();
   if (tab === "categories") return renderCategories();
+  if (tab === "costs") return renderCosts();
   renderLibrary();
 }
 window.addEventListener("hashchange", route);
@@ -149,7 +152,7 @@ function renderLibrary() {
       ${c.facets.map(f => facetGroup(f.key, f.label, f.values, r => r.facets?.[f.key] || [])).join("")}
       ${facetGroup("status", "Status", c.status, r => [r.status])}
       <section class="fg open"><div class="fg-b"><label class="opt"><input type="checkbox" data-f="greenshoot" value="yes" ${(st.filters.greenshoot || []).length ? "checked" : ""}><span>Greenshoot projects only</span><em>${st.records.filter(r => r.greenshoot_project).length}</em></label></div></section>
-      <p class="small side-link"><a class="link" href="#/categories">See or add to the category lists</a></p>
+      <p class="small side-link"><a class="link" href="#/categories">See or add to the category lists</a><br><a class="link" href="#/costs">AI costs this month</a></p>
     </aside>
     <section class="results">
       <form class="search" id="search">
@@ -157,7 +160,7 @@ function renderLibrary() {
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
           <input id="q" type="search" placeholder="Search precedents, or ask a question: timber shelters near water with weaving patterns" value="${esc(st.q)}" autocomplete="off">
         </div>
-        <button class="btn ask" id="ask-btn" type="submit" ${st.asking ? "disabled" : ""}><span class="spark">✦</span> ${st.asking ? "Searching..." : "Ask Groundwork"}</button>
+        <button class="btn ask" id="ask-btn" type="submit" ${st.asking ? "disabled" : ""}><span class="spark">✦</span> ${st.asking ? "Searching..." : "Ask Groundwork"}</button>${costTag("ask", "a question")}
       </form>
       ${askRes || st.asking || st.ask?.error ? `<div class="askbox">
         <div class="askbox-h"><b>✦ Groundwork</b>${st.ask?.label ? `<span class="muted">${esc(st.ask.label)}</span>` : ""}<button class="link" id="ask-clear">Clear</button></div>
@@ -238,7 +241,7 @@ function renderRecord(id) {
   <article class="rec">
     <div class="rec-top"><a class="link" href="#/library">← Library</a>
       <div class="rec-actions">
-        <button class="btn" id="similar">Find similar</button>
+        <button class="btn" id="similar" title="Uses AI: roughly ${estText("ask")}">Find similar</button>
         <button class="btn" id="addto">Add to this precedent</button>
         <button class="btn" id="edit">Edit</button>
       </div></div>
@@ -296,15 +299,17 @@ function openAddTo(r) {
       <p class="muted">New photos, a web page with more about it, or just context in a note. Groundwork reads it alongside the existing entry and suggests what to add; you check it in the inbox.</p>
       <div class="urlrow"><label class="fl long"><span>Web page <em>optional</em></span><input name="url" type="url" id="at-url" placeholder="https://..."></label><button type="button" class="btn" id="at-get">Get images</button></div>
       <div class="ipick" id="at-imgs" hidden></div>
-      <label class="drop" id="at-drop"><input type="file" accept="image/*" multiple hidden id="at-files"><span><b>Drop photos here</b>, paste (Cmd/Ctrl+V), or click to choose <em>optional, up to 8</em></span></label>
+      <label class="drop" id="at-drop"><input type="file" accept="image/*" multiple hidden id="at-files"><span><b>Drop photos here</b>, paste (Cmd/Ctrl+V), or click to choose <em>optional, up to 20</em></span></label>
       <div class="drop-list" id="at-list"></div>
+      <div class="fl long"><span>A PowerPoint or PDF about it <em>optional: pick its images, and Groundwork reads its text for anything new</em></span><div id="at-doc" class="docbox"></div></div>
       <label class="fl long"><span>Note or context <em>optional</em></span><textarea name="note" rows="3" placeholder="e.g. Photos from our site visit, Nov 2026. The panels were designed with Wurundjeri women Elders..."></textarea></label>
       <div class="rf-actions"><span></span><button class="btn primary" id="at-send">Send and review</button></div>
       <p class="msg" id="at-msg" role="status"></p>
     </form>`;
   m.hidden = false; document.body.classList.add("noscroll");
   document.getElementById("mclose").onclick = closeModal;
-  const pick = photoPicker(document.getElementById("at-drop"), document.getElementById("at-files"), document.getElementById("at-list"));
+  const docs = docPicker(document.getElementById("at-doc"), { project: r.name });
+  const pick = photoPicker(document.getElementById("at-drop"), document.getElementById("at-files"), document.getElementById("at-list"), null, f => docs.load(f));
   const web = imagePicker(document.getElementById("at-imgs")), urlIn = document.getElementById("at-url");
   let loaded = "";
   const getImages = () => { const u = urlIn.value.trim(); if (!/^https?:\/\//.test(u)) { urlIn.reportValidity(); return; } if (u !== loaded) { loaded = u; web.load(u); } };
@@ -315,15 +320,102 @@ function openAddTo(r) {
     e.preventDefault();
     const fd = new FormData(e.target), url = String(fd.get("url") || "").trim(), note = String(fd.get("note") || "").trim();
     const btn = document.getElementById("at-send"), msg = document.getElementById("at-msg");
-    if (!url && !note && !pick.count()) { msg.className = "msg bad"; msg.textContent = "Add a link, some photos or a note."; return; }
+    if (!url && !note && !pick.count() && !docs.doc()) { msg.className = "msg bad"; msg.textContent = "Add a link, some photos, a document or a note."; return; }
+    if (pick.count() + docs.count() > 20) { msg.className = "msg bad"; msg.textContent = "Up to 20 images at a time: untick a few."; return; }
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Sending...";
     try {
       const pg = url && url === loaded ? web.page() : null;
-      const item = await sendToInbox({ url, note, target: r.id, title: pg?.title || (url ? "" : `More for ${r.name}`), site: pg?.site || "" },
-        pick.files(), [...pick.webImgs(), ...(pg ? web.selected() : [])]);
+      const d = docs.doc();
+      const item = await sendToInbox({ url, note, target: r.id, title: pg?.title || (d ? d.name : url ? "" : `More for ${r.name}`), site: pg?.site || "",
+        ...(d ? { from: "document", text: docs.text() } : {}) },
+        [...pick.files(), ...docs.files()], [...pick.webImgs(), ...(pg ? web.selected() : [])]);
       pick.stop(); closeModal(); await loadInbox();
       location.hash = `#/inbox/${item.id}`;
     } catch (err) { msg.className = "msg bad"; msg.textContent = `Couldn't send: ${err.message}`; btn.disabled = false; }
+  };
+}
+
+// A PowerPoint or PDF: read in the browser (free), every image shown to tick, optionally Groundwork picks the photos
+// (a few cents), and the slide text sent along for Groundwork to read. project: the precedent's name when adding to one.
+function docPicker(box, { project = "", onChange } = {}) {
+  let doc = null, sel = new Set(), info = {}, showAll = false, urls = [];
+  box.innerHTML = `<label class="drop doc-drop"><input type="file" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
+    <span><b>Drop a PowerPoint (.pptx) or PDF here</b>, or click to choose<br><em>The slides are read on your computer: you pick the images, and Groundwork reads the text.</em></span></label>
+    <div class="doc-out"></div>`;
+  const drop = box.querySelector(".doc-drop"), input = box.querySelector("input"), out = box.querySelector(".doc-out");
+  const small = im => (im.w && im.w < 400 && im.h < 400) || im.repeated;
+  const visible = () => doc.images.filter(im => showAll || !small(im));
+  const changed = () => onChange?.();
+  const draw = () => {
+    if (!doc) { out.innerHTML = ""; return changed(); }
+    const hidden = doc.images.filter(small).length, nText = doc.pages.filter(p => p.text).length;
+    out.innerHTML = `<div class="doc-head"><b>${esc(doc.name)}</b> <span class="muted">${doc.pages.length} ${doc.kind === "pdf" ? "pages" : "slides"} · ${doc.images.length} image${doc.images.length === 1 ? "" : "s"}${doc.truncated ? ` (first 80 of ${doc.truncated} pages)` : ""}</span> <button type="button" class="link" data-d="clear">Remove</button></div>
+      ${doc.images.length ? `<div class="doc-tools"><span><b>${sel.size}</b> ticked <span class="muted">(up to 20)</span></span>
+        <button type="button" class="btn" data-d="ai">✦ Let Groundwork pick the photos</button>${costTag("sort")}
+        <span><button type="button" class="link" data-d="all">Tick all</button> · <button type="button" class="link" data-d="none">None</button>${hidden ? ` · <button type="button" class="link" data-d="small">${showAll ? "Hide" : "Show"} ${hidden} small or repeated</button>` : ""}</span></div>
+      <p class="msg doc-msg"></p>
+      <div class="ip-grid doc-grid">${visible().map(im => `<label class="ip-cell ${sel.has(im.id) ? "on" : ""} ${info[im.id]?.keep === false ? "nope" : ""}" data-id="${im.id}" title="${esc(info[im.id]?.caption || im.name)}">
+        <img src="${urls[doc.images.indexOf(im)]}" alt=""><input type="checkbox" ${sel.has(im.id) ? "checked" : ""}><span class="ip-size">${doc.kind === "pdf" ? "Page" : "Slide"} ${im.page}${info[im.id]?.image_type ? ` · ${esc(info[im.id].image_type)}` : ""}</span></label>`).join("")}</div>` : `<p class="muted small">No images in it (charts and shapes drawn in PowerPoint don't come out as images).</p>`}
+      ${nText ? `<label class="check doc-text"><input type="checkbox" checked> Send the ${doc.kind === "pdf" ? "page" : "slide"} text too, for Groundwork to read (${nText} ${doc.kind === "pdf" ? "pages" : "slides"} with text)</label>` : ""}`;
+    out.querySelectorAll(".ip-cell").forEach(c => c.querySelector("input").onchange = e => {
+      const id = c.dataset.id;
+      if (e.target.checked && sel.size >= 20) { e.target.checked = false; return toast("Up to 20 images at a time."); }
+      e.target.checked ? sel.add(id) : sel.delete(id); c.classList.toggle("on", e.target.checked);
+      out.querySelector(".doc-tools b").textContent = sel.size; changed();
+    });
+    out.querySelectorAll("[data-d]").forEach(b => b.onclick = () => {
+      const d = b.dataset.d;
+      if (d === "clear") { doc = null; sel = new Set(); info = {}; urls.forEach(u => URL.revokeObjectURL(u)); urls = []; }
+      if (d === "all") { sel = new Set(visible().slice(0, 20).map(im => im.id)); if (visible().length > 20) toast("Ticked the first 20 (the most you can send at once)."); }
+      if (d === "none") sel = new Set();
+      if (d === "small") showAll = !showAll;
+      if (d === "ai") return pickWithAI(b);
+      draw();
+    });
+    changed();
+  };
+  // Groundwork looks at small copies of the images and says which are pictures of the project.
+  async function pickWithAI(btn) {
+    const msg = out.querySelector(".doc-msg"), ims = doc.images.filter(im => !(im.w && im.w < 200 && im.h < 200)).slice(0, 80);
+    btn.disabled = true; msg.className = "msg doc-msg"; msg.textContent = "Groundwork is looking at the images...";
+    try {
+      for (let i = 0; i < ims.length; i += 40) {
+        const batch = ims.slice(i, i + 40);
+        const data = await Promise.all(batch.map(async im => toBase64(await shrink(im.blob, 512, 0.7))));
+        const titles = doc.pages.map(p => `${p.n}: ${p.title}`).join("; ").slice(0, 2500);
+        const res = await api("/api/sort-images", { method: "POST", raw: true, body: { images: data, project, context: `${doc.name}. ${batch.map(im => `image ${batch.indexOf(im) + 1} is from ${doc.kind === "pdf" ? "page" : "slide"} ${im.page}`).join(", ")}. Titles: ${titles}` } });
+        const { value } = await readJSONAnswer(res);
+        (value.images || []).forEach((r, n) => { if (batch[n]) info[batch[n].id] = r; });
+      }
+      sel = new Set(doc.images.filter(im => info[im.id]?.keep).slice(0, 20).map(im => im.id));
+      const kept = doc.images.filter(im => info[im.id]?.keep).length;
+      draw();
+      const m2 = out.querySelector(".doc-msg");
+      m2.textContent = `Groundwork picked ${kept} image${kept === 1 ? "" : "s"} of the project${kept > 20 ? " (the first 20 are ticked: the most you can send at once)" : ""}. Faded ones it thinks aren't. Change any ticks you like.`;
+    } catch (e) { btn.disabled = false; msg.className = "msg bad doc-msg"; msg.textContent = `Couldn't pick: ${e.message}`; }
+  }
+  async function load(file) {
+    out.innerHTML = `<p class="muted small"><span class="spinner sm"></span> Opening ${esc(file.name)}...</p>`;
+    try {
+      doc = await readDocument(file, m => { const p = out.querySelector("p"); if (p) p.lastChild.textContent = ` ${m}`; });
+      urls = doc.images.map(im => URL.createObjectURL(im.blob));
+      info = {}; showAll = false;
+      // A first guess (free): big images that aren't on every slide. PDF pages start unticked.
+      sel = new Set(doc.kind === "pptx" ? doc.images.filter(im => !small(im) && Math.max(im.w, im.h) >= 600).slice(0, 20).map(im => im.id) : []);
+      draw();
+    } catch (e) { doc = null; out.innerHTML = `<p class="msg bad">${esc(e.message)}.</p>`; changed(); }
+  }
+  input.onchange = () => { if (input.files[0]) load(input.files[0]); input.value = ""; };
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); const f = [...e.dataTransfer.files].find(isDocument); if (f) load(f); else toast("Drop a .pptx or .pdf file here."); };
+  return {
+    load,
+    doc: () => doc,
+    count: () => sel.size,
+    // The ticked images as files (with Groundwork's caption and type when it looked), in document order.
+    files: () => (doc ? doc.images.filter(im => sel.has(im.id)).map(im => Object.assign(new File([im.blob], im.name, { type: im.blob.type }), { caption: info[im.id]?.caption || "", image_type: info[im.id]?.image_type || (doc.kind === "pdf" ? "" : "") })) : []),
+    text: () => (doc && out.querySelector(".doc-text input")?.checked ? documentText(doc) : ""),
   };
 }
 
@@ -332,17 +424,18 @@ function openAddTo(r) {
 async function sendToInbox(body, files = [], webImgs = []) {
   const batches = [[]]; let size = 0;
   for (const f of files) {
-    const up = { data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString() };
+    const up = { data: await toBase64(await shrink(f, 1600, 0.8)), type: "image/jpeg", name: f.name, taken: new Date(f.lastModified).toISOString(),
+      ...(f.caption ? { caption: f.caption } : {}), ...(f.image_type ? { image_type: f.image_type } : {}) };
     if (size + up.data.length > 3_500_000 && batches.at(-1).length) { batches.push([]); size = 0; }
     batches.at(-1).push(up); size += up.data.length;
   }
-  const { item } = await api("/api/inbox", { method: "POST", body: { ...body, from: files.length && !body.url ? "upload" : body.from || "web", uploads: batches[0], images: webImgs } });
+  const { item } = await api("/api/inbox", { method: "POST", body: { ...body, from: body.from === "document" ? "document" : files.length && !body.url ? "upload" : body.from || "web", uploads: batches[0], images: webImgs } });
   for (const b of batches.slice(1)) await api("/api/inbox", { method: "PATCH", body: { id: item.id, uploads: b } });
   return item;
 }
 
 // A photo drop zone: files, pasted screenshots and images dragged from other web pages (up to 8 in all).
-function photoPicker(drop, input, list, onChange) {
+function photoPicker(drop, input, list, onChange, onDoc) {
   let files = [], webImgs = [];
   const show = () => { setTimeout(() => onChange?.(), 0); list.innerHTML = files.map(f => `<span>${esc(f.name || "pasted image")}</span>`).join("") + webImgs.map(u => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join(""); };
   const add = fl => { files = [...files, ...[...fl].filter(f => f.type.startsWith("image/"))].slice(0, 20 - webImgs.length); show(); };
@@ -352,6 +445,8 @@ function photoPicker(drop, input, list, onChange) {
   drop.ondrop = e => {
     e.preventDefault(); drop.classList.remove("over");
     const dt = e.dataTransfer;
+    const docFile = [...dt.files].find(isDocument);
+    if (docFile && onDoc) return onDoc(docFile);     // a PowerPoint or PDF goes to the document box
     if ([...dt.files].some(f => f.type.startsWith("image/"))) return add(dt.files);
     // An image dragged from another web page arrives as its address.
     const html = dt.getData("text/html"), m = html && html.match(/<img[^>]+src=["']([^"']+)/i);
@@ -502,7 +597,7 @@ async function openReview(item) {
     return;
   }
   if (!item.draft) {
-    box.innerHTML = `${sourceStrip(item)}<div class="drafting"><div class="spinner"></div><p><b>Groundwork is drafting the record</b><br><span class="muted">Reading the page and images, choosing categories, checking for duplicates...</span></p></div>`;
+    box.innerHTML = `${sourceStrip(item)}<div class="drafting"><div class="spinner"></div><p><b>Groundwork is drafting the record</b> ${costTag("draft", "for each new item, once")}<br><span class="muted">Reading the page and images, choosing categories, checking for duplicates...</span></p></div>`;
     try {
       const out = await api("/api/draft", { method: "POST", body: { id: item.id } });
       Object.assign(item, out.item);
@@ -518,8 +613,8 @@ async function openReview(item) {
   const dupes = (d.duplicates || []).filter(x => byId(x.id));
   box.innerHTML = `${sourceStrip(item)}
     ${dupes.length ? `<div class="dupes"><b>Possibly already in the library:</b> ${dupes.map(x => `<span><a href="#/p/${x.id}" target="_blank">${x.id} ${esc(byId(x.id).name)}</a> <em>(${esc(x.why)})</em> <button class="link" data-merge="${x.id}">Add to this one instead</button></span>`).join(" ")}</div>` : ""}
-    <div class="addto-row"><button class="btn" id="pick-existing">Add to an existing precedent...</button><span class="muted small">If this is already in the library, choose it: Groundwork reads both and proposes what to add.</span>
-      <button class="link" id="redraft" title="Throw this draft away and have Groundwork draft it again">Draft again</button></div>
+    <div class="addto-row"><button class="btn" id="pick-existing">Add to an existing precedent...</button>${costTag("merge")}<span class="muted small">If this is already in the library, choose it: Groundwork reads both and proposes what to add.</span>
+      <button class="link" id="redraft" title="Throw this draft away and have Groundwork draft it again. Uses AI: roughly ${estText("draft")}">Draft again</button></div>
     ${d.notes || d.confidence === "low" ? `<div class="note-box"><b>Check:</b> ${esc(d.notes || "Groundwork wasn't confident about this draft.")}</div>` : ""}
     <div id="form-host"></div>`;
   const form = editorForm({ record: d.record, draftImages: d.images, item });
@@ -623,7 +718,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       ${rec.depth === "short"
         ? `<details class="more-write"${rec.why_it_matters || rec.description ? " open" : ""}><summary>Why it matters and description (optional for a short record)</summary>${c.fields.filter(x => x.long && x.key !== "summary").map(field).join("")}</details>`
         : c.fields.filter(x => x.long && x.key !== "summary").map(field).join("")}
-      <div class="fillrow"><button type="button" class="btn" id="fill" ${fillRun ? "disabled" : ""}>✦ Check and fill online</button><span class="muted small" id="fill-msg">${esc(fillMsg || "Groundwork searches the web, then checks every field against what it finds and the record's own text. You choose which changes to keep.")}</span></div>
+      <div class="fillrow"><button type="button" class="btn" id="fill" ${fillRun ? "disabled" : ""}>✦ Check and fill online</button>${costTag("check")}<span class="muted small" id="fill-msg">${esc(fillMsg || "Groundwork searches the web, then checks every field against what it finds and the record's own text. You choose which changes to keep.")}</span></div>
       <div id="fill-out"></div>
     </div>
     <div class="rf-sec"><h3>Categories <span class="muted small">Pick all that apply. These drive the library's filters. Missing one? + Add to the list.</span></h3>
@@ -776,6 +871,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
       const { value: raw, complete } = await readJSONAnswer(res);
       fillAns = tidyCheck(raw, record);
       fillRun = false;
+      refreshCost();
       setFill(searchNote + (complete ? fillAns.summary || "Checked." : "Groundwork ran out of time partway (the site stops after about 30 seconds), so this is the first part of the check. Use what's here, then run it again for the rest."), true);
     } catch (e) { fillRun = false; setFill(`Couldn't check: ${e.message}`, true); }
   }
@@ -828,7 +924,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     draw();
     el.querySelector("#prop-top").scrollIntoView({ block: "nearest" });
     try {
-      const res = await api("/api/merge", { method: "POST", raw: true, body: { target: existing, incoming: item?.draft?.record || {}, note: item?.note || "", text: item?.text || "", url: item?.url || "" } });
+      const res = await api("/api/merge", { method: "POST", raw: true, body: { target: existing, incoming: item?.draft?.record || {}, note: item?.note || "", text: item?.text || "", url: item?.url || "", source: item?.from || "" } });
       const { value: raw, complete } = await readJSONAnswer(res);
       if (target !== id) return;   // changed their mind while it was working
       const ans = tidyCheck(raw, existing);
@@ -882,7 +978,7 @@ function editorForm({ record, draftImages = [], item = null, targetId = null }) 
     if (!top || fillRun || fillAns) return;
     top.hidden = false;
     top.innerHTML = `<span>Groundwork only had the photo${(item?.uploads || []).length > 1 ? "s" : ""} to go on. If you want the designers, year, place and sources, run <b>Check and fill online</b>.</span>
-      <button type="button" class="btn" id="fill-now">✦ Check and fill online</button><button type="button" class="link" id="fill-skip">Not needed</button>`;
+      <button type="button" class="btn" id="fill-now">✦ Check and fill online</button>${costTag("check")}<button type="button" class="link" id="fill-skip">Not needed</button>`;
     top.querySelector("#fill-now").onclick = () => fillGaps({ auto: true });
     top.querySelector("#fill-skip").onclick = () => { top.hidden = true; };
   }
@@ -926,7 +1022,8 @@ function renderAdd() {
   view.innerHTML = `
   <div class="page add">
     <h1>Add a precedent</h1>
-    <p class="muted">Everything goes to the <a href="#/inbox">inbox</a> first. Groundwork drafts the record and its categories, then anyone on the team checks and approves it.</p>
+    <p class="muted">Everything goes to the <a href="#/inbox">inbox</a> first. Groundwork drafts the record and its categories, then anyone on the team checks and approves it.
+      Sending is free; Groundwork's draft costs ${estText("draft")} of AI per item, once, when it's first opened in the inbox (see <a href="#/costs">AI costs</a>).</p>
     <div class="add-cols">
       <form class="panel" id="by-link">
         <h2>From a web page</h2>
@@ -944,6 +1041,13 @@ function renderAdd() {
         <button class="btn primary">Send to the inbox</button>
       </form>
     </div>
+    <form class="panel" id="by-doc">
+      <h2>From a document</h2>
+      <p class="muted small">A PowerPoint or PDF about a project (a precedent deck, a report, a presentation). Pick its images; Groundwork reads the text and drafts the precedent. If the project is already in the library, it'll say so and you can add to it instead.</p>
+      <div id="doc-box" class="docbox"></div>
+      <label class="fl long"><span>Note <em>optional</em></span><input name="note" placeholder="e.g. Final presentation to council, Oct 2026"></label>
+      <button class="btn primary" id="doc-send">Send to the inbox</button>
+    </form>
     <div class="panel bm">
       <h2>Bookmark button</h2>
       <p>Drag this to your browser's bookmarks bar. On any web page, highlight text if you like, then click it to send the page and its images to the inbox.</p>
@@ -972,7 +1076,21 @@ function renderAdd() {
     if (ok) splitBox.innerHTML = `<label class="check"><input type="checkbox" id="split-on" checked> Send as ${g.length} separate precedents, one per file name</label>
       <ul>${g.map(x => `<li>${esc(x.name)} <span class="muted">${x.files.length} photo${x.files.length > 1 ? "s" : ""}</span></li>`).join("")}</ul>`;
   };
-  const pick = photoPicker(document.getElementById("drop"), document.getElementById("files"), document.getElementById("drop-list"), showSplit);
+  const docs = docPicker(document.getElementById("doc-box"));
+  const toDoc = f => { document.getElementById("by-doc").scrollIntoView({ behavior: "smooth" }); docs.load(f); };
+  const pick = photoPicker(document.getElementById("drop"), document.getElementById("files"), document.getElementById("drop-list"), showSplit, toDoc);
+  document.getElementById("by-doc").onsubmit = async e => {
+    e.preventDefault();
+    const d = docs.doc(), btn = document.getElementById("doc-send");
+    if (!d) return toast("Drop a PowerPoint or PDF first.");
+    if (!docs.count() && !docs.text()) return toast("Tick some images, or send the text.");
+    btn.disabled = true; btn.textContent = "Sending...";
+    try {
+      const note = String(new FormData(e.target).get("note") || "");
+      const item = await sendToInbox({ title: nameFromFile(d.name) || d.name, note, text: docs.text(), from: "document" }, docs.files(), []);
+      await loadInbox(); toast("Sent to the inbox"); location.hash = `#/inbox/${item.id}`;
+    } catch (err) { toast(`Couldn't send: ${err.message}`); btn.disabled = false; btn.textContent = "Send to the inbox"; }
+  };
   document.getElementById("by-photos").onsubmit = async e => {
     e.preventDefault();
     if (!pick.count()) return toast("Add some photos or images first");
@@ -990,6 +1108,76 @@ function renderAdd() {
       pick.clear(); e.target.reset(); showSplit();
     } catch (err) { toast(`Couldn't send: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Send to the inbox";
+  };
+}
+
+
+// ---------- AI costs ----------
+// Every button that uses AI says roughly what it costs (A$, estimates from token counts). The header shows the month
+// so far; #/costs has the breakdown. Ask Groundwork and Find similar read the whole library, so they grow with it.
+const AUD = 1.45, IN = 2 / 1e6, OUT = 10 / 1e6;
+const libTokens = () => 2500 + st.records.length * 70;
+const EST = {
+  draft: () => [0.09, 0.16], check: () => [0.22, 0.43], merge: () => [0.13, 0.25], sort: () => [0.02, 0.1],
+  ask: () => [(libTokens() * IN + 500 * OUT) * AUD, (libTokens() * IN + 1500 * OUT) * AUD],
+};
+const cents = a => (a < 1 ? `${Math.max(1, Math.round(a * 100))}¢` : `A$${a.toFixed(2)}`);
+const estText = k => { const [lo, hi] = EST[k](); return cents(lo) === cents(hi) ? `about ${cents(hi)}` : `${cents(lo).replace("¢", "")} to ${cents(hi)}`; };
+function costTag(k, what = "each time") {
+  return `<span class="cost" title="Uses AI: roughly ${estText(k)} ${what} (an estimate, in A$). The header shows this month's total; click it for the breakdown.">AI · ${estText(k)}</span>`;
+}
+async function refreshCost() {
+  const a = document.getElementById("aicost");
+  if (!a) return;
+  try {
+    const u = await api("/api/usage?summary=1");
+    a.hidden = false;
+    a.innerHTML = `AI A$${u.total.toFixed(2)}<span class="long"> this month</span>`;
+    a.classList.toggle("over", !!u.budget && u.total >= u.budget);
+    a.classList.toggle("near", !!u.budget && u.total >= u.budget * 0.8 && u.total < u.budget);
+    a.title = `What the AI has cost this month, an estimate${u.budget ? ` (heads-up amount A$${u.budget})` : ""}. Click for the breakdown.`;
+  } catch { /* leave it as it was */ }
+}
+
+async function renderCosts() {
+  const month = st.costMonth || new Date().toISOString().slice(0, 7);
+  view.innerHTML = `<div class="page costs"><p class="muted">Loading...</p></div>`;
+  let u;
+  try { u = await api(`/api/usage?month=${month}`); } catch (e) { view.innerHTML = `<div class="page"><p class="msg bad">${esc(e.message)}</p></div>`; return; }
+  const max = Math.max(0.01, ...u.byDay.map(d => d.total));
+  const pct = u.budget ? Math.min(100, (u.total / u.budget) * 100) : 0;
+  const mname = m => new Date(`${m}-01T00:00:00`).toLocaleDateString("en-AU", { month: "long", year: "numeric" });
+  view.innerHTML = `<div class="page costs">
+    <a class="link" href="#/library">← Library</a>
+    <h1>AI costs</h1>
+    <p class="muted">What Groundwork's AI has cost, worked out from the size of each request (tokens) at Anthropic's prices: US$${u.prices.input} per million
+      tokens read, US$${u.prices.output} per million written, US$${u.prices.search} per 1,000 web searches, at A$${u.prices.audPerUsd} to the US dollar.
+      These are estimates: the Claude Console has the actual bill, and a monthly spending limit can be set there. Images, storage and the website itself cost nothing extra.</p>
+    <div class="cost-sum">
+      <div><span class="muted small">${esc(mname(u.month))}</span><b>A$${u.total.toFixed(2)}</b><span class="muted small">${u.calls} AI action${u.calls === 1 ? "" : "s"}${u.projected != null ? ` · on track for about A$${u.projected.toFixed(2)} this month` : ""}</span></div>
+      <form id="budget-form"><label class="small">Heads-up amount for a month (A$)<input type="number" min="0" step="1" id="budget" value="${u.budget || ""}" placeholder="none"></label><button class="btn">Save</button></form>
+    </div>
+    ${u.budget ? `<div class="budget-bar ${u.total >= u.budget ? "over" : u.total >= u.budget * 0.8 ? "near" : ""}"><span style="width:${pct}%"></span></div><p class="small muted">${pct.toFixed(0)}% of the A$${u.budget} heads-up amount. Over it, the total in the header turns red for everyone.</p>` : ""}
+    <h3>By feature</h3>
+    ${u.byFeature.length ? `<table class="ctab"><thead><tr><th>What</th><th>Times</th><th>Average</th><th>Total</th></tr></thead><tbody>${u.byFeature.map(f => `<tr><td>${esc(f.label)}</td><td>${f.calls}</td><td>A$${f.average.toFixed(2)}</td><td>A$${f.total.toFixed(2)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">No AI used this month yet.</p>`}
+    ${u.byUser.length ? `<h3>By person</h3><table class="ctab"><thead><tr><th>Who</th><th>Times</th><th>Total</th></tr></thead><tbody>${u.byUser.map(f => `<tr><td>${esc(f.key)}</td><td>${f.calls}</td><td>A$${f.total.toFixed(2)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${u.byDay.length ? `<h3>By day</h3><div class="cdays">${u.byDay.map(d => `<div title="${esc(d.key)}: A$${d.total.toFixed(2)}, ${d.calls} action${d.calls === 1 ? "" : "s"}"><span style="height:${Math.max(3, (d.total / max) * 100)}%"></span><em>${d.key.slice(8)}</em></div>`).join("")}</div>` : ""}
+    ${u.months.length > 1 || (u.months[0] && u.months[0].month !== u.month) ? `<h3>Other months</h3><ul class="cmonths">${u.months.map(m => `<li><a href="#" data-month="${m.month}" class="${m.month === u.month ? "on" : ""}">${esc(mname(m.month))}</a> A$${m.total.toFixed(2)} <span class="muted small">${m.calls} actions</span></li>`).join("")}</ul>` : ""}
+    <h3>What things roughly cost</h3>
+    <table class="ctab"><tbody>
+      <tr><td>Drafting a new precedent (happens when it's first opened in the inbox)</td><td>${estText("draft")}</td></tr>
+      <tr><td>Check and fill online (only when someone clicks it)</td><td>${estText("check")}</td></tr>
+      <tr><td>Adding to an existing precedent</td><td>${estText("merge")}</td></tr>
+      <tr><td>Ask Groundwork or Find similar (grows with the library: ${st.records.length} precedents now)</td><td>${estText("ask")}</td></tr>
+      <tr><td>Letting Groundwork pick photos from a document</td><td>${estText("sort")}</td></tr>
+      <tr><td>Searching, filtering, viewing, downloading, sending to the inbox, reading a document's images</td><td>free</td></tr>
+    </tbody></table>
+  </div>`;
+  view.querySelectorAll("[data-month]").forEach(a => a.onclick = e => { e.preventDefault(); st.costMonth = a.dataset.month; renderCosts(); });
+  document.getElementById("budget-form").onsubmit = async e => {
+    e.preventDefault();
+    try { await api("/api/usage", { method: "POST", body: { budget: Number(document.getElementById("budget").value) || 0 } }); toast("Saved"); refreshCost(); renderCosts(); }
+    catch (err) { toast(err.message); }
   };
 }
 

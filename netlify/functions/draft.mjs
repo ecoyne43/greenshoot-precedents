@@ -1,7 +1,7 @@
 // POST /api/draft { id }  Groundwork drafts a precedent record from an inbox item: reads the web page, looks at the
 // images, fills the fields, picks categories only from the lists and checks the library for duplicates.
 // The draft is saved on the item (item.draft) so the next person to open it sees the same thing.
-import { requireAuth, json, handle, claude, safeUrl, BROWSER_HEADERS } from "../lib/server.mjs";
+import { requireAuth, json, handle, claude, safeUrl, BROWSER_HEADERS, userName } from "../lib/server.mjs";
 import { store } from "../lib/blobs.mjs";
 import { pageMeta } from "../lib/pagemeta.mjs";
 import { readLibrary, cleanRecord, findDuplicates, shortLine } from "../lib/library.mjs";
@@ -41,7 +41,7 @@ export default handle(async (req) => {
   // they ticked none, the page's own. Groundwork looks at up to 8 to caption and type them, but everything the sender
   // chose stays on the list, however large (the browser shrinks images when they're approved).
   const picked = (item.images || []).filter((v, i, a) => a.indexOf(v) === i);
-  const chosen = [...(item.uploads || []).map(x => ({ key: x.key, type: x.type, mine: true, credit: x.credit, src: x.src })), ...picked.map(url => ({ url, mine: true }))];
+  const chosen = [...(item.uploads || []).map(x => ({ key: x.key, type: x.type, mine: true, credit: x.credit, src: x.src, caption: x.caption, image_type: x.image_type })), ...picked.map(url => ({ url, mine: true }))];
   const cands = chosen.length ? chosen : (meta?.images || []).map(url => ({ url }));
   const seen = [];
   for (const c of cands) {
@@ -63,7 +63,9 @@ export default handle(async (req) => {
     (meta?.site || item.site) && `SITE: ${meta?.site || item.site}`, (meta?.author || item.author) && `AUTHOR: ${meta?.author || item.author}`,
     (meta?.date || item.date) && `DATE: ${meta?.date || item.date}`, meta?.description && `PAGE DESCRIPTION: ${meta.description}`,
     item.note && `NOTE FROM ${item.by || "the sender"}: ${item.note}`,
-    item.text && `TEXT THE SENDER HIGHLIGHTED:\n${item.text.slice(0, 8000)}`,
+    item.text && (item.from === "document"
+      ? `TEXT FROM THE DOCUMENT "${item.title || "the document"}" (a PowerPoint or PDF the sender added; it is the main source):\n${item.text.slice(0, 15000)}`
+      : `TEXT THE SENDER HIGHLIGHTED:\n${item.text.slice(0, 8000)}`),
     meta?.text && `PAGE TEXT:\n${meta.text.slice(0, 9000)}`,
     ownCount && `The first ${ownCount} image(s) are the sender's own photos or screenshots.`,
     fileNames.length && `IMAGE FILE NAMES, as the sender saved them: ${fileNames.map(n => `"${n}"`).join("; ")}. People usually name files after the project, often with the designer after a dash ("Project Name - Designer"). Treat a descriptive file name as the project's name (and designer) unless the images clearly contradict it.`,
@@ -79,7 +81,7 @@ export default handle(async (req) => {
     ...seen.map(i => ({ type: "image", source: { type: "base64", media_type: i.type, data: i.data } })),
     { type: "text", text: text + (chosen.length ? "\n\nThe sender chose these images themselves." : "") + library + detailText + "\n\nDraft the precedent record." },
   ];
-  const out = await claude({ system: draftRules(F), content, schema: draftSchema(F), maxTokens: 6000 });
+  const out = await claude({ system: draftRules(F), content, schema: draftSchema(F), maxTokens: 6000, feature: "draft", user: userName(req) });
 
   // Full write-up for First Peoples precedents and Greenshoot projects; a short record for the rest (the reviewer can
   // switch it). A short record never keeps a long write-up Groundwork wrote anyway.
@@ -97,7 +99,7 @@ export default handle(async (req) => {
     })),
     // What the sender chose but Groundwork didn't look at (too large, or over 8): kept, with plain defaults.
     ...chosen.filter(c => !seen.some(x => (x.key && x.key === c.key) || (x.url && x.url === c.url))).map(c => ({
-      ...(c.key ? { key: c.key } : { url: c.url }), image_type: "Photo", caption: "",
+      ...(c.key ? { key: c.key } : { url: c.url }), image_type: c.image_type || "Photo", caption: c.caption || "",
       credit: c.credit || (c.key ? item.by : meta?.site || item.site || ""), keep: true, source_url: c.src || c.url || item.url || "",
     }))],
     duplicates: item.target ? [] : findDuplicates(record, records, (out.same_as || []).filter(m => m.id !== item.target)),
